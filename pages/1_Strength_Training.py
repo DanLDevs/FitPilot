@@ -150,15 +150,25 @@ with tab_history:
             edit_date = st.date_input("Date", date.fromisoformat(selected["workout_date"]), key=f"edit_date_{selected_id}")
             edit_name = st.text_input("Session name", selected["session_name"], key=f"edit_name_{selected_id}")
             edit_notes = st.text_input("Session notes", selected["notes"], key=f"edit_notes_{selected_id}")
-            edit_exercises = []
-            for index, exercise in enumerate(selected["exercises"]):
-                cols = st.columns(5)
-                name = cols[0].text_input("Exercise", exercise["exercise_name"], key=f"edit_exercise_{selected_id}_{index}")
-                sets = cols[1].number_input("Sets", 1, 20, int(exercise["sets"]), key=f"edit_sets_{selected_id}_{index}")
-                reps = cols[2].number_input("Reps per set", 1, 100, int(exercise["reps"]), key=f"edit_reps_{selected_id}_{index}")
-                weight = cols[3].number_input("Weight (kg)", 0.0, 1000.0, float(exercise["weight_kg"]), key=f"edit_weight_{selected_id}_{index}")
-                rpe = cols[4].number_input("RPE", 1.0, 10.0, float(exercise["rpe"] or 7), key=f"edit_rpe_{selected_id}_{index}")
-                edit_exercises.append((name, int(sets), int(reps), weight, rpe, bool(exercise["pain"]), exercise["notes"] or ""))
+            edit_sets = []
+            if not selected["exercises"]:
+                st.caption("This session has no completed sets.")
+            for exercise in selected["exercises"]:
+                st.caption(f"{exercise['exercise_name']} · set {exercise['set_number']}")
+                cols = st.columns(4)
+                set_id = exercise["id"]
+                name = cols[0].text_input("Exercise", exercise["exercise_name"], key=f"edit_exercise_{selected_id}_{set_id}")
+                reps = cols[1].number_input("Reps", 1, 100, int(exercise["reps"]), key=f"edit_reps_{selected_id}_{set_id}")
+                weight = cols[2].number_input("Weight (kg)", 0.0, 1000.0, float(exercise["weight_kg"]), key=f"edit_weight_{selected_id}_{set_id}")
+                rpe = cols[3].number_input(
+                    "RPE", min_value=1.0, max_value=10.0, step=0.5,
+                    value=None if exercise["rpe"] is None else float(exercise["rpe"]),
+                    key=f"edit_rpe_{selected_id}_{set_id}",
+                )
+                edit_sets.append({
+                    "id": set_id, "exercise_name": name, "reps": int(reps),
+                    "weight_kg": float(weight), "rpe": rpe,
+                })
             update, delete = st.columns(2)
             with update:
                 update_clicked = st.form_submit_button("Save edits", type="primary")
@@ -166,14 +176,7 @@ with tab_history:
                 delete_clicked = st.form_submit_button("Delete session")
         if update_clicked:
             try:
-                updated = StrengthWorkoutInput(
-                    workout_date=edit_date, session_name=edit_name.strip(), notes=edit_notes,
-                    exercises=[StrengthSetInput(
-                        exercise_name=name, sets=sets, reps=reps, weight_kg=weight,
-                        rpe=rpe, pain=pain, notes=notes,
-                    ) for name, sets, reps, weight, rpe, pain, notes in edit_exercises],
-                )
-                strength_service.update_workout(selected_id, updated)
+                strength_service.update_workout(selected_id, edit_date, edit_name.strip(), edit_notes, edit_sets)
                 st.success("Session updated.")
                 st.rerun()
             except Exception as error:

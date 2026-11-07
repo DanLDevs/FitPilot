@@ -48,7 +48,15 @@ def resolve_day_counts(profile: dict) -> dict:
         strength_count = max(0, training - running)
 
     total = strength_count + running_count
-    if total < 1 or total > 7:
+    preferences_conflict = strength > 0 and running > 0 and total != training
+    out_of_range = total < 1 or total > 7
+    if preferences_conflict:
+        raise PlanCountError(
+            f"Preferred strength and running days add up to {total} sessions, "
+            f"but training days per week is {training}. "
+            "Update the athlete profile so those preferences add up to the training days."
+        )
+    if out_of_range:
         raise PlanCountError(
             f"This profile requests {total} sessions "
             f"({strength_count} strength and {running_count} running). "

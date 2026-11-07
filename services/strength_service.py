@@ -60,31 +60,40 @@ def get_workout(workout_id: int, db_path: str | Path | None = None) -> dict | No
             return None
         result = dict(workout)
         result["exercises"] = [dict(row) for row in connection.execute(
-            """SELECT exercise_name, COUNT(*) AS sets, AVG(reps) AS reps,
-            AVG(weight_kg) AS weight_kg, AVG(rpe) AS rpe,
-            MAX(pain) AS pain, GROUP_CONCAT(DISTINCT notes) AS notes
-            FROM strength_sets WHERE workout_id = ? GROUP BY exercise_name ORDER BY MIN(id)""",
+            """SELECT id, exercise_name, exercise_key, set_number, reps, weight_kg, rpe,
+            pain, notes, technique_concern, target_reps_min, target_reps_max, rest_seconds
+            FROM strength_sets
+            WHERE workout_id = ? AND is_completed = 1
+            ORDER BY id""",
             (workout_id,),
         ).fetchall()]
         return result
 
 
-def update_workout(workout_id: int, workout: StrengthWorkoutInput, db_path: str | Path | None = None) -> None:
+def update_workout(
+    workout_id: int,
+    workout_date,
+    session_name: str,
+    notes: str,
+    sets: list[dict],
+    db_path: str | Path | None = None,
+) -> None:
     with get_connection(db_path) as connection:
-        connection.execute(
+        updated = connection.execute(
             "UPDATE strength_workouts SET workout_date = ?, session_name = ?, notes = ? WHERE id = ? AND status = 'completed'",
-            (workout.workout_date.isoformat(), workout.session_name, workout.notes, workout_id),
+            (workout_date.isoformat(), session_name, notes, workout_id),
         )
-        connection.execute("DELETE FROM strength_sets WHERE workout_id = ?", (workout_id,))
-        for exercise in workout.exercises:
-            for set_number in range(1, exercise.sets + 1):
-                connection.execute(
-                    """INSERT INTO strength_sets
-                    (workout_id, exercise_name, set_number, reps, weight_kg, rpe, notes, pain)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (workout_id, exercise.exercise_name.strip(), set_number, exercise.reps,
-                     exercise.weight_kg, exercise.rpe, exercise.notes, int(exercise.pain)),
-                )
+        if updated.rowcount == 0:
+            raise ValueError("Completed workout not found")
+        for item in sets:
+            changed = connection.execute(
+                """UPDATE strength_sets SET exercise_name = ?, reps = ?, weight_kg = ?, rpe = ?
+                WHERE id = ? AND workout_id = ? AND is_completed = 1""",
+                (item["exercise_name"].strip(), int(item["reps"]), float(item["weight_kg"]),
+                 item["rpe"], item["id"], workout_id),
+            )
+            if changed.rowcount != 1:
+                raise ValueError("Completed set not found")
 
 
 def delete_workout(workout_id: int, db_path: str | Path | None = None) -> None:

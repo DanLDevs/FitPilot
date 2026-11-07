@@ -337,6 +337,10 @@ def finish_workout(workout_id: int, db_path: str | Path | None = None) -> None:
     with get_connection(db_path) as connection:
         _require_active(connection, workout_id)
         connection.execute(
+            "DELETE FROM strength_sets WHERE workout_id = ? AND is_completed = 0",
+            (workout_id,),
+        )
+        connection.execute(
             """UPDATE strength_workouts SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
             rest_ends_at = NULL, rest_paused_remaining_seconds = NULL WHERE id = ?""",
             (workout_id,),

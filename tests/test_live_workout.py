@@ -55,6 +55,47 @@ def test_live_workout_autosave_resume_and_completed_analytics(tmp_path) -> None:
     assert len(strength_service.list_sets(db_path)) == 0
 
 
+def test_finished_live_sets_stay_distinct_when_edited(tmp_path) -> None:
+    db_path = tmp_path / "edit-live.db"
+    database.init_database(db_path)
+    database.save_profile(_profile(), db_path)
+    workout_id = live_workout_service.start_workout(LiveWorkoutInput(
+        workout_date=date(2026, 11, 7), session_name="Upper A",
+        exercises=[LiveExerciseInput(
+            exercise_key="bench", exercise_name="Bench Press", target_reps_min=8,
+            target_reps_max=12, rest_seconds=90,
+            sets=[
+                LiveSetInput(reps=5, weight_kg=40, technique_concern=True),
+                LiveSetInput(reps=8, weight_kg=20),
+            ],
+        )],
+    ), db_path)
+    active = live_workout_service.get_active_workout(db_path)
+    completed = active["exercises"][0]["sets"][0]
+    live_workout_service.complete_set(workout_id, completed["id"], db_path=db_path)
+    live_workout_service.finish_workout(workout_id, db_path)
+
+    loaded = strength_service.get_workout(workout_id, db_path)
+    assert [(row["reps"], row["weight_kg"]) for row in loaded["exercises"]] == [(5, 40.0)]
+    assert loaded["exercises"][0]["target_reps_min"] == 8
+    assert loaded["exercises"][0]["technique_concern"] == 1
+
+    strength_service.update_workout(
+        workout_id, date(2026, 11, 8), "Upper A", "",
+        [{
+            "id": loaded["exercises"][0]["id"], "exercise_name": "Bench Press",
+            "reps": 6, "weight_kg": 42.5, "rpe": None,
+        }],
+        db_path,
+    )
+    saved = strength_service.get_workout(workout_id, db_path)
+    assert saved["workout_date"] == "2026-11-08"
+    assert [(row["reps"], row["weight_kg"], row["technique_concern"], row["target_reps_max"]) for row in saved["exercises"]] == [
+        (6, 42.5, 1, 12),
+    ]
+    assert len(strength_service.list_sets(db_path)) == 1
+
+
 def test_live_workout_discard_does_not_enter_history(tmp_path) -> None:
     db_path = tmp_path / "discard.db"
     database.init_database(db_path)

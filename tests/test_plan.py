@@ -107,6 +107,8 @@ def test_day_counts_follow_profile_preferences() -> None:
     )) == {"strength_days": 3, "running_days": 2}
     with pytest.raises(PlanCountError):
         resolve_day_counts(_profile(strength_days=4, running_days=4, training_days=4))
+    with pytest.raises(PlanCountError, match="add up to 6 sessions"):
+        resolve_day_counts(_profile(strength_days=3, running_days=3, training_days=4))
 
 
 def test_gemini_model_defaults_to_flash_lite(monkeypatch) -> None:
