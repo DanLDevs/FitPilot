@@ -15,13 +15,24 @@ st.set_page_config(page_title="FitPilot", page_icon="F", layout="wide")
 database.init_database()
 st.markdown(
     """<style>
-    .stApp { background: #f5f7f4; color: #17231d; }
-    [data-testid="stSidebar"] { background: #17231d; }
-    [data-testid="stSidebar"] * { color: #eef4ed !important; }
-    h1, h2, h3 { letter-spacing: 0; color: #17231d; }
-    div[data-testid="stMetric"] { background: white; border: 1px solid #e1e8e0; padding: 16px; border-radius: 8px; }
-    div[data-testid="stMetricLabel"] { color: #55665b; }
-    .fitpilot-kicker { color: #258257; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
+    :root {
+        color-scheme: dark;
+        --fitpilot-bg: #151a18;
+        --fitpilot-surface: #202825;
+        --fitpilot-border: #35423a;
+        --fitpilot-text: #edf3ee;
+        --fitpilot-muted: #a5b3aa;
+        --fitpilot-green: #63c58d;
+    }
+    .stApp { background: var(--fitpilot-bg); color: var(--fitpilot-text); }
+    [data-testid="stMain"] { background: var(--fitpilot-bg); }
+    [data-testid="stSidebar"] { background: #111614; }
+    [data-testid="stSidebar"] * { color: var(--fitpilot-text) !important; }
+    [data-testid="stHeader"] { background: rgba(21, 26, 24, 0.92); }
+    h1, h2, h3 { letter-spacing: 0; color: var(--fitpilot-text); }
+    div[data-testid="stMetric"] { background: var(--fitpilot-surface); border: 1px solid var(--fitpilot-border); padding: 16px; border-radius: 8px; }
+    div[data-testid="stMetricLabel"], [data-testid="stCaptionContainer"] { color: var(--fitpilot-muted); }
+    .fitpilot-kicker { color: var(--fitpilot-green); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
     </style>""",
     unsafe_allow_html=True,
 )
@@ -123,12 +134,22 @@ chart1, chart2 = st.columns(2)
 with chart1:
     st.subheader("Strength volume")
     strength_fig = px.bar(data["strength_volume_weeks"], x="week", y="value", labels={"week": "Week of", "value": "Volume (kg)", "x": "Week of"}, color_discrete_sequence=["#258257"])
-    strength_fig.update_layout(margin=dict(l=8, r=8, t=12, b=8), plot_bgcolor="white", paper_bgcolor="white")
+    strength_fig.update_layout(
+        template="plotly_dark", margin=dict(l=8, r=8, t=12, b=8),
+        plot_bgcolor="#202825", paper_bgcolor="#151a18", font_color="#edf3ee",
+        xaxis=dict(gridcolor="#35423a", zerolinecolor="#35423a"),
+        yaxis=dict(gridcolor="#35423a", zerolinecolor="#35423a"),
+    )
     st.plotly_chart(strength_fig, use_container_width=True)
 with chart2:
     st.subheader("Running distance")
     run_fig = px.bar(data["running_distance_weeks"], x="week", y="value", labels={"week": "Week of", "value": "Distance (km)"}, color_discrete_sequence=["#df7958"])
-    run_fig.update_layout(margin=dict(l=8, r=8, t=12, b=8), plot_bgcolor="white", paper_bgcolor="white")
+    run_fig.update_layout(
+        template="plotly_dark", margin=dict(l=8, r=8, t=12, b=8),
+        plot_bgcolor="#202825", paper_bgcolor="#151a18", font_color="#edf3ee",
+        xaxis=dict(gridcolor="#35423a", zerolinecolor="#35423a"),
+        yaxis=dict(gridcolor="#35423a", zerolinecolor="#35423a"),
+    )
     st.plotly_chart(run_fig, use_container_width=True)
 
 st.subheader("Workout frequency")
@@ -137,7 +158,12 @@ frequency_fig = px.bar(
     labels={"week": "Week of", "value": "Sessions", "variable": "Activity"},
     color_discrete_map={"strength": "#258257", "running": "#df7958"},
 )
-frequency_fig.update_layout(margin=dict(l=8, r=8, t=12, b=8), plot_bgcolor="white", paper_bgcolor="white")
+frequency_fig.update_layout(
+    template="plotly_dark", margin=dict(l=8, r=8, t=12, b=8),
+    plot_bgcolor="#202825", paper_bgcolor="#151a18", font_color="#edf3ee",
+    xaxis=dict(gridcolor="#35423a", zerolinecolor="#35423a"),
+    yaxis=dict(gridcolor="#35423a", zerolinecolor="#35423a"),
+)
 st.plotly_chart(frequency_fig, use_container_width=True)
 
 st.subheader("This week's activity")
