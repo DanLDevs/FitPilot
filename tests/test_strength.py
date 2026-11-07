@@ -34,6 +34,54 @@ def test_empty_database_and_cascade_delete(tmp_path) -> None:
     assert strength_service.list_sets(db_path) == []
 
 
+def test_active_workout_migration_preserves_legacy_completed_data(tmp_path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "legacy_active.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+            CREATE TABLE strength_workouts (
+                id INTEGER PRIMARY KEY, user_id INTEGER, workout_date TEXT,
+                session_name TEXT, notes TEXT, created_at TEXT
+            );
+            CREATE TABLE strength_sets (
+                id INTEGER PRIMARY KEY, workout_id INTEGER, exercise_name TEXT,
+                set_number INTEGER, reps INTEGER, weight_kg REAL, rpe REAL,
+                notes TEXT, pain INTEGER
+            );
+            CREATE TABLE running_workouts (
+                id INTEGER PRIMARY KEY, user_id INTEGER, workout_date TEXT,
+                run_type TEXT, distance_km REAL, duration_minutes REAL, rpe INTEGER,
+                notes TEXT, pain INTEGER, created_at TEXT
+            );
+            INSERT INTO users VALUES (1, 'Legacy');
+            INSERT INTO strength_workouts VALUES (7, 1, '2026-10-01', 'Upper', 'kept', '2026-10-01');
+            INSERT INTO strength_sets VALUES (11, 7, 'Bench Press', 1, 8, 50.0, 7.0, 'old set', 0);
+            """
+        )
+
+    database.init_database(db_path)
+    database.init_database(db_path)
+    with sqlite3.connect(db_path) as connection:
+        workout = connection.execute(
+            "SELECT status, default_rest_seconds FROM strength_workouts WHERE id = 7"
+        ).fetchone()
+        set_row = connection.execute(
+            "SELECT is_completed, exercise_key, technique_concern FROM strength_sets WHERE id = 11"
+        ).fetchone()
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        routine_tables = connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('workout_routines', 'routine_exercises')"
+        ).fetchone()[0]
+
+    assert workout == ("completed", 90)
+    assert set_row == (1, "legacy:Bench Press", 0)
+    assert version == 1
+    assert routine_tables == 2
+
+
 def test_invalid_strength_input_is_rejected() -> None:
     with pytest.raises(ValueError):
         StrengthSetInput(exercise_name="Squat", sets=0, reps=5, weight_kg=60)

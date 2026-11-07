@@ -105,7 +105,7 @@ with tab_insights:
         history = [{**row, "display_distance": row["distance_km"] * multiplier} for row in workouts]
         weekly = weekly_totals(history, "display_distance", "workout_date")
         figure = px.line(weekly, x="week", y="value", markers=True, labels={"week": "Week of", "value": f"Distance ({distance_unit})"}, color_discrete_sequence=["#df7958"])
-        figure.update_layout(margin=dict(l=8, r=8, t=12, b=8), plot_bgcolor="white", paper_bgcolor="white")
+        figure.update_layout(template="plotly_dark", margin=dict(l=8, r=8, t=12, b=8), plot_bgcolor="#202825", paper_bgcolor="#151a18", font_color="#edf3ee")
         st.plotly_chart(figure, use_container_width=True)
 
         frame = pd.DataFrame(workouts)

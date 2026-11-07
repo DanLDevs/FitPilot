@@ -28,7 +28,9 @@ def list_workouts(db_path: str | Path | None = None, limit: int = 100) -> list[d
         rows = connection.execute(
             """SELECT w.id, w.workout_date, w.session_name, w.notes,
             COUNT(s.id) AS set_count, COALESCE(SUM(s.reps * s.weight_kg), 0) AS volume_kg
-            FROM strength_workouts w LEFT JOIN strength_sets s ON s.workout_id = w.id
+            FROM strength_workouts w LEFT JOIN strength_sets s
+            ON s.workout_id = w.id AND s.is_completed = 1
+            WHERE w.status = 'completed'
             GROUP BY w.id ORDER BY w.workout_date DESC, w.id DESC LIMIT ?""",
             (limit,),
         ).fetchall()
@@ -38,9 +40,12 @@ def list_workouts(db_path: str | Path | None = None, limit: int = 100) -> list[d
 def list_sets(db_path: str | Path | None = None) -> list[dict]:
     with get_connection(db_path) as connection:
         rows = connection.execute(
-            """SELECT w.workout_date, w.session_name, s.exercise_name, s.set_number,
-            s.reps, s.weight_kg, s.rpe, s.notes, s.pain
+            """SELECT w.id AS workout_id, w.workout_date, w.session_name,
+            s.exercise_name, s.exercise_key, s.set_number, s.reps, s.weight_kg,
+            s.rpe, s.notes, s.pain, s.technique_concern, s.is_completed,
+            s.target_reps_min, s.target_reps_max
             FROM strength_sets s JOIN strength_workouts w ON w.id = s.workout_id
+            WHERE w.status = 'completed' AND s.is_completed = 1
             ORDER BY w.workout_date, s.exercise_name, s.set_number"""
         ).fetchall()
         return [dict(row) for row in rows]
@@ -49,7 +54,7 @@ def list_sets(db_path: str | Path | None = None) -> list[dict]:
 def get_workout(workout_id: int, db_path: str | Path | None = None) -> dict | None:
     with get_connection(db_path) as connection:
         workout = connection.execute(
-            "SELECT * FROM strength_workouts WHERE id = ?", (workout_id,)
+            "SELECT * FROM strength_workouts WHERE id = ? AND status = 'completed'", (workout_id,)
         ).fetchone()
         if workout is None:
             return None
@@ -67,7 +72,7 @@ def get_workout(workout_id: int, db_path: str | Path | None = None) -> dict | No
 def update_workout(workout_id: int, workout: StrengthWorkoutInput, db_path: str | Path | None = None) -> None:
     with get_connection(db_path) as connection:
         connection.execute(
-            "UPDATE strength_workouts SET workout_date = ?, session_name = ?, notes = ? WHERE id = ?",
+            "UPDATE strength_workouts SET workout_date = ?, session_name = ?, notes = ? WHERE id = ? AND status = 'completed'",
             (workout.workout_date.isoformat(), workout.session_name, workout.notes, workout_id),
         )
         connection.execute("DELETE FROM strength_sets WHERE workout_id = ?", (workout_id,))
@@ -84,4 +89,4 @@ def update_workout(workout_id: int, workout: StrengthWorkoutInput, db_path: str 
 
 def delete_workout(workout_id: int, db_path: str | Path | None = None) -> None:
     with get_connection(db_path) as connection:
-        connection.execute("DELETE FROM strength_workouts WHERE id = ?", (workout_id,))
+        connection.execute("DELETE FROM strength_workouts WHERE id = ? AND status = 'completed'", (workout_id,))
