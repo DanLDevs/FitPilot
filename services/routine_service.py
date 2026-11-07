@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 from models.schemas import WorkoutRoutineInput
@@ -30,41 +31,51 @@ def save_routine(
     routine: WorkoutRoutineInput,
     routine_id: int | None = None,
     db_path: str | Path | None = None,
+    plan_id: int | None = None,
 ) -> int:
     with get_connection(db_path) as connection:
-        if routine_id is None:
-            cursor = connection.execute(
-                """INSERT INTO workout_routines
-                (name, notes, default_rest_seconds, auto_start_rest)
-                VALUES (?, ?, ?, ?)""",
-                (routine.name.strip(), routine.notes, routine.default_rest_seconds,
-                 int(routine.auto_start_rest)),
-            )
-            routine_id = int(cursor.lastrowid)
-        else:
-            connection.execute(
-                """UPDATE workout_routines SET name = ?, notes = ?, default_rest_seconds = ?,
-                auto_start_rest = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
-                (routine.name.strip(), routine.notes, routine.default_rest_seconds,
-                 int(routine.auto_start_rest), routine_id),
-            )
-            if connection.execute("SELECT changes()").fetchone()[0] == 0:
-                raise ValueError("Routine not found")
-            connection.execute("DELETE FROM routine_exercises WHERE routine_id = ?", (routine_id,))
+        return write_routine(connection, routine, routine_id, plan_id)
 
-        connection.executemany(
-            """INSERT INTO routine_exercises
-            (routine_id, position, exercise_name, sets, target_reps_min, target_reps_max,
-            starting_weight_kg, rest_seconds, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [
-                (routine_id, position, exercise.exercise_name.strip(), exercise.sets,
-                 exercise.target_reps_min, exercise.target_reps_max,
-                 exercise.starting_weight_kg, exercise.rest_seconds, exercise.notes)
-                for position, exercise in enumerate(routine.exercises)
-            ],
+
+def write_routine(
+    connection: sqlite3.Connection,
+    routine: WorkoutRoutineInput,
+    routine_id: int | None = None,
+    plan_id: int | None = None,
+) -> int:
+    if routine_id is None:
+        cursor = connection.execute(
+            """INSERT INTO workout_routines
+            (name, notes, default_rest_seconds, auto_start_rest, plan_id)
+            VALUES (?, ?, ?, ?, ?)""",
+            (routine.name.strip(), routine.notes, routine.default_rest_seconds,
+             int(routine.auto_start_rest), plan_id),
         )
-        return routine_id
+        routine_id = int(cursor.lastrowid)
+    else:
+        connection.execute(
+            """UPDATE workout_routines SET name = ?, notes = ?, default_rest_seconds = ?,
+            auto_start_rest = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+            (routine.name.strip(), routine.notes, routine.default_rest_seconds,
+             int(routine.auto_start_rest), routine_id),
+        )
+        if connection.execute("SELECT changes()").fetchone()[0] == 0:
+            raise ValueError("Routine not found")
+        connection.execute("DELETE FROM routine_exercises WHERE routine_id = ?", (routine_id,))
+
+    connection.executemany(
+        """INSERT INTO routine_exercises
+        (routine_id, position, exercise_name, sets, target_reps_min, target_reps_max,
+        starting_weight_kg, rest_seconds, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            (routine_id, position, exercise.exercise_name.strip(), exercise.sets,
+             exercise.target_reps_min, exercise.target_reps_max,
+             exercise.starting_weight_kg, exercise.rest_seconds, exercise.notes)
+            for position, exercise in enumerate(routine.exercises)
+        ],
+    )
+    return routine_id
 
 
 def delete_routine(routine_id: int, db_path: str | Path | None = None) -> None:

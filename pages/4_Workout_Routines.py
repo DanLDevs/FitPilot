@@ -2,8 +2,15 @@ from uuid import uuid4
 
 import streamlit as st
 
-from models.schemas import RoutineExerciseInput, WorkoutRoutineInput
-from services import database, routine_service
+from models.schemas import GeneratedWeek, RoutineExerciseInput, WorkoutRoutineInput
+from services import database, plan_service, routine_service
+from services.gemini_plan_service import (
+    GEMINI_MODELS,
+    PlanCountError,
+    gemini_configured,
+    generate_week,
+    resolve_day_counts,
+)
 
 
 st.set_page_config(page_title="Workout Routines | FitPilot", page_icon="F", layout="wide")
@@ -71,6 +78,128 @@ def _load_routine(routine_id: int | None) -> None:
     for exercise in routine["exercises"]:
         _add_row(exercise)
 
+
+def _render_plan_days(days: list[dict], saved: bool) -> None:
+    for index, day in enumerate(days):
+        with st.container(border=True):
+            label = day.get("weekday") or f"Day {index + 1}"
+            kind = "Strength" if day.get("session_kind") == "strength" else "Running"
+            st.markdown(f"**{label} · {day['title']}**")
+            st.caption(kind)
+            if day.get("session_kind") == "strength":
+                for exercise in day.get("exercises") or []:
+                    rest = exercise.get("rest_seconds")
+                    rest_text = f" · rest {rest}s" if rest is not None else ""
+                    st.write(
+                        f"{exercise['exercise_name']} — {exercise['sets']} sets · "
+                        f"{exercise['target_reps_min']}–{exercise['target_reps_max']} reps{rest_text}"
+                    )
+                if saved and day.get("routine_id"):
+                    if st.button("Edit routine", key=f"edit_plan_routine_{day['routine_id']}"):
+                        routine = routine_service.get_routine(day["routine_id"])
+                        if routine is not None:
+                            st.session_state["routine_pending_selection"] = f"{routine['name']} · #{routine['id']}"
+                            st.rerun()
+                elif saved:
+                    st.caption("This strength routine was removed. You can recreate it in the editor below.")
+            else:
+                distance = day.get("distance_km")
+                duration = day.get("duration_minutes")
+                if distance is not None and duration is not None:
+                    st.write(f"{day.get('run_type')} · {distance:g} km · {duration:g} min")
+                st.caption("Log this run on the Running page when you complete it.")
+            if day.get("notes"):
+                st.caption(day["notes"])
+
+
+st.subheader("Weekly plan")
+st.caption("Gemini builds one session for each available training day from your athlete profile.")
+summary_left, summary_right = st.columns(2)
+summary_left.markdown(
+    f"**Primary goal:** {profile['primary_goal']}  \n"
+    f"**Experience:** {profile['experience_level']}  \n"
+    f"**Training days:** {profile['training_days']}  \n"
+    f"**Strength days:** {profile['strength_days']}  \n"
+    f"**Running days:** {profile['running_days']}"
+)
+summary_right.markdown(
+    f"**Minutes per session:** {profile['session_minutes']}  \n"
+    f"**Equipment:** {profile['equipment'] or 'Not set'}  \n"
+    f"**Fitness goals:** {profile['fitness_goals'] or 'Not set'}  \n"
+    f"**Schedule:** {profile['existing_schedule'] or 'Not set'}"
+)
+st.text_input(
+    "Anything else Gemini should know",
+    key="plan_extra_note",
+    placeholder="Optional: injury, preference, or focus",
+)
+
+plan_counts = None
+try:
+    plan_counts = resolve_day_counts(profile)
+    st.caption(
+        f"Gemini will build {plan_counts['strength_days']} strength sessions and "
+        f"{plan_counts['running_days']} running sessions."
+    )
+except PlanCountError as error:
+    st.warning(str(error))
+
+if not gemini_configured():
+    st.info("Add GEMINI_API_KEY to your .env file to generate a weekly plan. You can still create routines manually.")
+elif plan_counts is not None:
+    st.selectbox(
+        "Gemini model",
+        GEMINI_MODELS,
+        format_func=lambda model_id: (
+            "Gemini 3.5 Flash-Lite" if model_id == "gemini-3.5-flash-lite" else "Gemini 3.5 Flash"
+        ),
+        key="plan_gemini_model",
+        help="Flash-Lite is the default. Choose Flash when Flash-Lite is busy.",
+    )
+    if st.button("Generate weekly plan", key="generate_weekly_plan"):
+        try:
+            with st.spinner("Building your week..."):
+                generated = generate_week(
+                    profile,
+                    st.session_state.get("plan_extra_note", ""),
+                    model=st.session_state["plan_gemini_model"],
+                )
+            st.session_state["plan_draft"] = generated.model_dump()
+            st.rerun()
+        except Exception as error:
+            st.error(f"Plan not generated: {error}")
+
+current_plan = plan_service.get_current_plan()
+plan_draft = st.session_state.get("plan_draft")
+if plan_draft:
+    st.markdown(f"**{plan_draft['name']}**")
+    if plan_draft.get("summary"):
+        st.write(plan_draft["summary"])
+    if current_plan is not None:
+        st.caption("Saving replaces the current generated plan and its strength routines. Routines you created yourself stay.")
+    _render_plan_days(plan_draft["days"], saved=False)
+    save_col, discard_col = st.columns(2)
+    if save_col.button("Save plan", type="primary", key="save_weekly_plan"):
+        try:
+            plan_service.save_plan(GeneratedWeek.model_validate(plan_draft))
+            st.session_state.pop("plan_draft", None)
+            st.success("Weekly plan saved. Strength days are available in Live Workout and in the editor below.")
+            st.rerun()
+        except Exception as error:
+            st.error(f"Plan not saved: {error}")
+    if discard_col.button("Discard", key="discard_weekly_plan"):
+        st.session_state.pop("plan_draft", None)
+        st.rerun()
+elif current_plan is not None:
+    st.markdown(f"**{current_plan['name']}**")
+    if current_plan.get("summary"):
+        st.write(current_plan["summary"])
+    _render_plan_days(current_plan["days"], saved=True)
+else:
+    st.caption("No weekly plan yet.")
+
+st.divider()
+st.subheader("Routine editor")
 
 if "routine_rows" not in st.session_state:
     st.session_state["routine_rows"] = []

@@ -93,6 +93,70 @@ class WorkoutRoutineInput(BaseModel):
     exercises: list[RoutineExerciseInput] = Field(min_length=1, max_length=30)
 
 
+RUN_TYPES = ("Easy", "Tempo", "Interval", "Long Run", "Recovery", "Other")
+
+
+class GeneratedExercise(BaseModel):
+    exercise_name: str = Field(min_length=1, max_length=100)
+    sets: int = Field(ge=1, le=30)
+    target_reps_min: int = Field(ge=1, le=100)
+    target_reps_max: int = Field(ge=1, le=100)
+    rest_seconds: int | None = Field(default=None, ge=0, le=3600)
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def validate_rep_range(self):
+        if self.target_reps_min > self.target_reps_max:
+            raise ValueError("Minimum target reps cannot exceed maximum target reps")
+        return self
+
+
+class GeneratedDay(BaseModel):
+    weekday: str = Field(default="", max_length=40)
+    session_kind: str
+    title: str = Field(min_length=1, max_length=100)
+    notes: str = ""
+    default_rest_seconds: int = Field(default=90, ge=0, le=3600)
+    auto_start_rest: bool = True
+    exercises: list[GeneratedExercise] = Field(default_factory=list, max_length=30)
+    run_type: str | None = None
+    distance_km: float | None = None
+    duration_minutes: float | None = None
+
+    @model_validator(mode="after")
+    def validate_session(self):
+        self.session_kind = self.session_kind.strip().lower()
+        if self.run_type:
+            match = next((item for item in RUN_TYPES if item.lower() == self.run_type.strip().lower()), None)
+            self.run_type = match or self.run_type.strip()
+        if self.session_kind == "strength":
+            if not self.exercises:
+                raise ValueError("Strength days need at least one exercise")
+            self.run_type = None
+            self.distance_km = None
+            self.duration_minutes = None
+            return self
+        if self.session_kind != "running":
+            raise ValueError("Each day must be a strength or running session")
+        if self.run_type not in RUN_TYPES:
+            raise ValueError("Running days need a supported run type")
+        if self.distance_km is None or self.duration_minutes is None:
+            raise ValueError("Running days need distance and duration")
+        if not 0 < self.distance_km <= 500:
+            raise ValueError("Running distance must be greater than 0 and at most 500 km")
+        if not 0 < self.duration_minutes <= 3000:
+            raise ValueError("Running duration must be greater than 0 and at most 3000 minutes")
+        if self.exercises:
+            raise ValueError("Running days cannot include exercises")
+        return self
+
+
+class GeneratedWeek(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    summary: str = ""
+    days: list[GeneratedDay] = Field(min_length=1, max_length=7)
+
+
 class RunningWorkoutInput(BaseModel):
     workout_date: date
     run_type: str

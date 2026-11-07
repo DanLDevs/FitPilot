@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_DB_PATH = Path(os.getenv("FITPILOT_DB_PATH", "fitpilot.db"))
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -138,6 +138,36 @@ def _migrate_database(connection: sqlite3.Connection) -> None:
         })
         _add_columns(connection, "routine_exercises", {
             "rest_seconds": "INTEGER CHECK (rest_seconds IS NULL OR rest_seconds >= 0)",
+        })
+    if version < 4:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS training_plans (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS plan_days (
+                id INTEGER PRIMARY KEY,
+                plan_id INTEGER NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                weekday TEXT NOT NULL DEFAULT '',
+                session_kind TEXT NOT NULL CHECK (session_kind IN ('strength', 'running')),
+                title TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                routine_id INTEGER REFERENCES workout_routines(id) ON DELETE SET NULL,
+                run_type TEXT,
+                distance_km REAL CHECK (distance_km IS NULL OR distance_km > 0),
+                duration_minutes REAL CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+                UNIQUE(plan_id, position)
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_days ON plan_days(plan_id, position);
+            """
+        )
+        _add_columns(connection, "workout_routines", {
+            "plan_id": "INTEGER REFERENCES training_plans(id)",
         })
     if version < CURRENT_SCHEMA_VERSION:
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
