@@ -23,6 +23,21 @@ def _set_key(set_id: int, field: str) -> str:
     return f"live_set_{set_id}_{field}"
 
 
+def _exercise_open_key(exercise_key: str) -> str:
+    return f"live_ex_open_{exercise_key}"
+
+
+def _complete_set(
+    workout_id: int,
+    set_id: int,
+    exercise_key: str,
+    is_last_set: bool,
+) -> None:
+    _autosave_set(workout_id, set_id)
+    live_workout_service.complete_set(workout_id, set_id)
+    st.session_state[_exercise_open_key(exercise_key)] = not is_last_set
+
+
 def _initialize_set_state(set_row: dict) -> None:
     defaults = {
         "reps": set_row["reps"], "weight_kg": set_row["weight_kg"],
@@ -157,7 +172,7 @@ else:
     workout_id = active["id"]
     if st.session_state.get("live_widget_workout_id") != workout_id:
         for key in list(st.session_state):
-            if key.startswith("live_set_") or key.startswith("live_rest_"):
+            if key.startswith(("live_set_", "live_rest_", "live_ex_open_")):
                 del st.session_state[key]
         st.session_state["live_widget_workout_id"] = workout_id
     st.session_state.setdefault("live_workout_date", date.fromisoformat(active["workout_date"]))
@@ -187,9 +202,16 @@ else:
     historical_sets = strength_service.list_sets()
     for exercise_index, exercise in enumerate(active["exercises"]):
         done = sum(row["is_completed"] for row in exercise["sets"])
-        with st.expander(f"{exercise['exercise_name']} · {done}/{len(exercise['sets'])} sets", expanded=exercise_index == 0):
+        exercise_key = exercise["exercise_key"]
+        open_key = _exercise_open_key(exercise_key)
+        if open_key not in st.session_state:
+            st.session_state[open_key] = exercise_index == 0
+        with st.expander(
+            f"{exercise['exercise_name']} · {done}/{len(exercise['sets'])} sets",
+            key=open_key,
+            on_change="rerun",
+        ):
             common_exercises = ["Bench Press", "Squat", "Deadlift", "Overhead Press", "Barbell Row", "Pull-Up", "Lat Pulldown", "Bicep Curl", "Tricep Pushdown", "Leg Press", "Romanian Deadlift", "Dumbbell Bench Press", "Custom"]
-            exercise_key = exercise["exercise_key"]
             name_key = f"live_ex_name_{exercise_key}"
             custom_key = f"live_ex_custom_{exercise_key}"
             minimum_key = f"live_target_min_{exercise_key}"
@@ -251,10 +273,22 @@ else:
                 columns[3].checkbox("Pain", key=_set_key(set_id, "pain"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
                 columns[4].checkbox("Technique", key=_set_key(set_id, "technique"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
                 columns[5].text_input("Notes", key=_set_key(set_id, "notes"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
-                if not set_row["is_completed"] and st.button("Complete set", key=f"complete_{set_id}", type="primary"):
-                    _autosave_set(workout_id, set_id)
-                    live_workout_service.complete_set(workout_id, set_id)
-                    st.rerun()
+                if not set_row["is_completed"]:
+                    incomplete_ids = [
+                        row["id"] for row in exercise["sets"] if not row["is_completed"]
+                    ]
+                    st.button(
+                        "Complete set",
+                        key=f"complete_{set_id}",
+                        type="primary",
+                        on_click=_complete_set,
+                        args=(
+                            workout_id,
+                            set_id,
+                            exercise_key,
+                            len(incomplete_ids) == 1,
+                        ),
+                    )
             set_actions = st.columns(2)
             if set_actions[0].button("Add set", key=f"add_set_{exercise['exercise_key']}"):
                 live_workout_service.add_set(workout_id, exercise["exercise_key"])
