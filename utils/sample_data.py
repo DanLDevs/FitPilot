@@ -42,6 +42,7 @@ def load_demo_data(db_path: str | Path | None = None) -> bool:
                 rpe = 8.5 if week == 4 and exercise_name == "Squat" else 7
                 adjusted_exercises.append(StrengthSetInput(
                     exercise_name=exercise_name, sets=sets, reps=reps, weight_kg=base_weight + increment,
+                    target_reps_min=max(1, reps - 2), target_reps_max=reps,
                     rpe=rpe, notes="Heavy session" if rpe > 8 else "", pain=False,
                 ))
             strength_service.add_workout(StrengthWorkoutInput(
