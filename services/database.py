@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_DB_PATH = Path(os.getenv("FITPILOT_DB_PATH", "fitpilot.db"))
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 3
 
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -79,7 +79,7 @@ def init_database(db_path: str | Path | None = None) -> None:
 
 def _migrate_database(connection: sqlite3.Connection) -> None:
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version < 1:
+    if version < 2:
         _add_columns(connection, "strength_workouts", {
             "status": "TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('active', 'completed', 'discarded'))",
             "completed_at": "TEXT",
@@ -129,6 +129,17 @@ def _migrate_database(connection: sqlite3.Connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_routine_exercises ON routine_exercises(routine_id, position);
             """
         )
+    if version < 3:
+        # Version 2 created these tables before rest settings existed, and
+        # CREATE TABLE IF NOT EXISTS does not add columns to that older copy.
+        _add_columns(connection, "workout_routines", {
+            "default_rest_seconds": "INTEGER NOT NULL DEFAULT 90 CHECK (default_rest_seconds >= 0)",
+            "auto_start_rest": "INTEGER NOT NULL DEFAULT 1 CHECK (auto_start_rest IN (0, 1))",
+        })
+        _add_columns(connection, "routine_exercises", {
+            "rest_seconds": "INTEGER CHECK (rest_seconds IS NULL OR rest_seconds >= 0)",
+        })
+    if version < CURRENT_SCHEMA_VERSION:
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
 

@@ -5,7 +5,7 @@ import streamlit as st
 
 from models.schemas import LiveExerciseInput, LiveSetInput, LiveWorkoutInput
 from services import database, live_workout_service, progression_service, routine_service, strength_service, timer_service
-from utils.browser_notifications import rest_notification_html
+from utils.browser_notifications import rest_timer_html
 from utils.calculations import kg_to_pounds, pounds_to_kg
 
 
@@ -75,48 +75,38 @@ def _save_exercise_details(workout_id: int, exercise_key: str) -> None:
     )
 
 
-def _render_timer(workout_id: int) -> None:
-    active = live_workout_service.get_active_workout()
-    if active is None:
-        return
-    deadline = active["rest_ends_at"]
-    paused = active["rest_paused_remaining_seconds"]
+def _render_timer(workout: dict) -> None:
+    workout_id = workout["id"]
+    deadline = workout["rest_ends_at"]
+    paused = workout["rest_paused_remaining_seconds"]
     if deadline is None and paused is None:
         st.caption("Rest timer ready. Completing a set starts it automatically when enabled.")
         if st.button("Start rest", key=f"manual_rest_{workout_id}"):
-            live_workout_service.start_rest(workout_id, active["default_rest_seconds"])
+            live_workout_service.start_rest(workout_id, workout["default_rest_seconds"])
             st.rerun()
         return
 
-    remaining = timer_service.remaining_seconds(deadline, paused_remaining_seconds=paused)
-    st.metric("Rest timer", timer_service.format_remaining(remaining), "Paused" if paused is not None else None)
-    controls = st.columns(5)
+    st.html(rest_timer_html(workout_id, deadline, paused), unsafe_allow_javascript=True)
+    if deadline and paused is None and timer_service.remaining_seconds(deadline) == 0:
+        live_workout_service.claim_rest_notification(workout_id)
+    primary = st.columns(2)
+    secondary = st.columns(2)
     if paused is None:
-        if controls[0].button("Pause", key=f"pause_rest_{workout_id}"):
+        if primary[0].button("Pause", key=f"pause_rest_{workout_id}"):
             live_workout_service.pause_rest(workout_id)
             st.rerun()
-    elif controls[0].button("Resume", key=f"resume_rest_{workout_id}"):
+    elif primary[0].button("Resume", key=f"resume_rest_{workout_id}"):
         live_workout_service.resume_rest(workout_id)
         st.rerun()
-    if controls[1].button("-15 sec", key=f"less_rest_{workout_id}"):
-        live_workout_service.adjust_rest(workout_id, -15)
-        st.rerun()
-    if controls[2].button("+15 sec", key=f"more_rest_{workout_id}"):
-        live_workout_service.adjust_rest(workout_id, 15)
-        st.rerun()
-    if controls[3].button("Skip", key=f"skip_rest_{workout_id}"):
+    if primary[1].button("Skip", key=f"skip_rest_{workout_id}"):
         live_workout_service.start_rest(workout_id, 0)
         st.rerun()
-    if deadline and remaining == 0:
-        if live_workout_service.claim_rest_notification(workout_id):
-            st.success("Rest is over. Ready for your next set?")
-        else:
-            st.info("Rest complete. Continue when you’re ready.")
-
-
-@st.fragment(run_every="1s")
-def timer_fragment(workout_id: int) -> None:
-    _render_timer(workout_id)
+    if secondary[0].button("-15 sec", key=f"less_rest_{workout_id}"):
+        live_workout_service.adjust_rest(workout_id, -15)
+        st.rerun()
+    if secondary[1].button("+15 sec", key=f"more_rest_{workout_id}"):
+        live_workout_service.adjust_rest(workout_id, 15)
+        st.rerun()
 
 
 active = live_workout_service.get_active_workout()
@@ -192,13 +182,7 @@ else:
         for exercise in active["exercises"] for row in exercise["sets"] if row["is_completed"]
     )
     st.progress(completed_sets / set_count if set_count else 0, text=f"{completed_sets} of {set_count} sets complete")
-    timer_is_active = active["rest_ends_at"] is not None or active["rest_paused_remaining_seconds"] is not None
-    if timer_is_active:
-        timer_fragment(workout_id)
-    else:
-        _render_timer(workout_id)
-    if active["rest_ends_at"]:
-        st.html(rest_notification_html(workout_id, active["rest_ends_at"]), unsafe_allow_javascript=True)
+    _render_timer(active)
 
     historical_sets = strength_service.list_sets()
     for exercise_index, exercise in enumerate(active["exercises"]):

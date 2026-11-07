@@ -27,7 +27,7 @@ streamlit run app.py
 
 The SQLite database is created automatically at `FITPILOT_DB_PATH` if set, or `fitpilot.db` otherwise. Additive database migrations preserve existing workout history. The app supports one local athlete profile.
 
-Complete the profile form on the dashboard and use **Load demo data** to add six weeks of example sessions. The demo loader avoids duplicates. Use **Live Workout** to start a blank session or load a saved routine. Set edits are persisted as you work, and an active session can be resumed after a refresh. Rest timers use saved timestamps and keep an in-app completion alert; optional browser notifications require permission and may be restricted by the browser or embedded frame.
+Complete the profile form on the dashboard and use **Load demo data** to add six weeks of example sessions. The demo loader avoids duplicates. Use **Live Workout** to start a blank session or load a saved routine. Set edits are persisted as you work, and an active session can be resumed after a refresh. Rest timers use saved timestamps. The countdown and the one-time completion alert run in the page, so the workout controls are not refreshed every second. Optional browser notifications require permission and may be restricted by the browser or embedded frame.
 
 ## Tests
 
