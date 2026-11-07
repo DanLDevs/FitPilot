@@ -5,7 +5,8 @@ import plotly.express as px
 import streamlit as st
 
 from models.schemas import RunningWorkoutInput
-from services import database, running_service
+from services import database, plan_service, running_service
+from services.log_defaults import running_log_defaults
 from utils.calculations import km_to_miles, miles_to_km, weekly_totals
 
 
@@ -21,23 +22,81 @@ if profile is None:
 workouts = running_service.list_workouts(limit=500)
 tab_log, tab_history, tab_insights = st.tabs(["Log run", "History and edits", "Progress"])
 
+RUN_TYPES = ["Easy", "Tempo", "Interval", "Long Run", "Recovery", "Other"]
+
+
+def _seed(key: str, value) -> None:
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+def _run_label(day: dict, used: set[str]) -> str:
+    weekday = (day.get("weekday") or "").strip()
+    title = day["title"]
+    label = f"{weekday} · {title}" if weekday else title
+    if label in used:
+        label = f"{label} · {int(day['position']) + 1}"
+    used.add(label)
+    return label
+
+
 with tab_log:
-    with st.form("running_log"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            workout_date = st.date_input("Run date", value=date.today())
-            run_type = st.selectbox("Run type", ["Easy", "Tempo", "Interval", "Long Run", "Recovery", "Other"])
-            unit = st.radio("Distance unit", ["km", "mi"], horizontal=True)
-        with col2:
-            distance = st.number_input(f"Distance ({unit})", min_value=0.1, max_value=500.0, value=5.0, step=0.1)
-            duration = st.number_input("Duration (minutes)", min_value=1.0, max_value=3000.0, value=30.0, step=1.0)
-            pace = duration / distance
-            st.metric(f"Average pace (min/{unit})", f"{int(pace)}:{round((pace % 1) * 60):02d}")
-        with col3:
-            rpe = st.slider("Perceived effort (RPE)", 1, 10, 5)
-            pain = st.checkbox("Pain or discomfort")
-            notes = st.text_area("Notes", placeholder="Optional")
-        submitted = st.form_submit_button("Save run", type="primary")
+    plan = plan_service.get_current_plan()
+    running_days = [day for day in (plan["days"] if plan else []) if day["session_kind"] == "running"]
+    selected_day = None
+    if running_days:
+        used_labels: set[str] = set()
+        run_labels = {"Log from scratch": None}
+        for day in running_days:
+            run_labels[_run_label(day, used_labels)] = day["position"]
+        selected_run_label = st.selectbox("Start from a planned run", list(run_labels), key="running_log_day")
+        selected_position = run_labels[selected_run_label]
+        selected_day = next((day for day in running_days if day["position"] == selected_position), None)
+    else:
+        st.caption("Runs from your weekly plan show up here. Log from scratch until you save a plan.")
+
+    if selected_day is None:
+        with st.form("running_log"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                workout_date = st.date_input("Run date", value=date.today())
+                run_type = st.selectbox("Run type", RUN_TYPES)
+                unit = st.radio("Distance unit", ["km", "mi"], horizontal=True)
+            with col2:
+                distance = st.number_input(f"Distance ({unit})", min_value=0.1, max_value=500.0, value=5.0, step=0.1)
+                duration = st.number_input("Duration (minutes)", min_value=1.0, max_value=3000.0, value=30.0, step=1.0)
+                pace = duration / distance
+                st.metric(f"Average pace (min/{unit})", f"{int(pace)}:{round((pace % 1) * 60):02d}")
+            with col3:
+                rpe = st.slider("Perceived effort (RPE)", 1, 10, 5)
+                pain = st.checkbox("Pain or discomfort")
+                notes = st.text_area("Notes", placeholder="Optional")
+            submitted = st.form_submit_button("Save run", type="primary")
+    else:
+        defaults = running_log_defaults(selected_day)
+        position = selected_day["position"]
+        run_type_value = defaults["run_type"] if defaults["run_type"] in RUN_TYPES else "Other"
+        _seed(f"log_run_type_{position}", run_type_value)
+        _seed(f"log_run_unit_{position}", "km")
+        _seed(f"log_run_distance_{position}", min(500.0, max(0.1, defaults["distance_km"])))
+        _seed(f"log_run_duration_{position}", min(3000.0, max(1.0, defaults["duration_minutes"])))
+        _seed(f"log_run_notes_{position}", defaults["notes"])
+        with st.form(f"running_log_{position}"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                workout_date = st.date_input("Run date", value=date.today(), key=f"log_run_date_{position}")
+                run_type = st.selectbox("Run type", RUN_TYPES, key=f"log_run_type_{position}")
+                unit = st.radio("Distance unit", ["km", "mi"], horizontal=True, key=f"log_run_unit_{position}")
+            with col2:
+                distance = st.number_input(f"Distance ({unit})", min_value=0.1, max_value=500.0, step=0.1, key=f"log_run_distance_{position}")
+                duration = st.number_input("Duration (minutes)", min_value=1.0, max_value=3000.0, step=1.0, key=f"log_run_duration_{position}")
+                pace = duration / distance
+                st.metric(f"Average pace (min/{unit})", f"{int(pace)}:{round((pace % 1) * 60):02d}")
+            with col3:
+                rpe = st.slider("Perceived effort (RPE)", 1, 10, 5, key=f"log_run_rpe_{position}")
+                pain = st.checkbox("Pain or discomfort", key=f"log_run_pain_{position}")
+                notes = st.text_area("Notes", key=f"log_run_notes_{position}")
+            submitted = st.form_submit_button("Save run", type="primary")
     if submitted:
         try:
             validated = RunningWorkoutInput(

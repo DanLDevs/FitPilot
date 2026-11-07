@@ -9,13 +9,14 @@ FitPilot is a local-first fitness tracking MVP for hybrid athletes. It records s
 - Live Workout mode with autosaved, resumable sessions, set completion, rest timers, and routine prefill.
 - Editable manual workout routines and deterministic, history-based progression cues.
 - Optional Gemini weekly plans built from the athlete profile, with strength days saved as routines and running days kept as prescriptions.
+- Optional Trainer page where Gemini answers questions from the athlete profile, current weekly plan, and recent logs. The chat stays in the browser session.
 - Running logs with automatic pace calculation and pain/effort tracking.
 - Weekly strength-volume and running-distance analytics with interactive charts.
 - Repeatable six-week demo data for exploring the dashboard.
 
 ## Stack and architecture
 
-Python 3.11+, Streamlit, SQLite, Pydantic, Pandas, NumPy, Plotly, and python-dotenv. `app.py` and `pages/` contain the UI; `services/` owns persistence and queries; `models/` validates inputs; `utils/` contains unit conversions and demo data. All stored strength weights are kilograms and run distances are kilometers.
+Python 3.11+, Streamlit, SQLite, Pydantic, Pandas, NumPy, Plotly, and python-dotenv. `Home.py` and `pages/` contain the UI; `services/` owns persistence and queries; `models/` validates inputs; `utils/` contains unit conversions and demo data. All stored strength weights are kilograms and run distances are kilometers.
 
 ## Install and run
 
@@ -23,10 +24,10 @@ Python 3.11+, Streamlit, SQLite, Pydantic, Pandas, NumPy, Plotly, and python-dot
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-streamlit run app.py
+streamlit run Home.py
 ```
 
-The SQLite database is created automatically at `FITPILOT_DB_PATH` if set, or `fitpilot.db` otherwise. Additive database migrations preserve existing workout history. The app supports one local athlete profile. Copy `.env.example` to `.env` and set `GEMINI_API_KEY` only if you want Gemini to generate a weekly plan.
+The SQLite database is created automatically at `FITPILOT_DB_PATH` if set, or `fitpilot.db` otherwise. Additive database migrations preserve existing workout history. The app supports one local athlete profile. Copy `.env.example` to `.env` and set `GEMINI_API_KEY` only if you want Gemini to generate a weekly plan or answer on the Trainer page.
 
 Complete the profile form on the dashboard and use **Load demo data** to add six weeks of example sessions. The demo loader avoids duplicates. Use **Live Workout** to start a blank session or load a saved routine. Set edits are persisted as you work, and an active session can be resumed after a refresh. Rest timers use saved timestamps. The countdown and the one-time completion alert run in the page, so the workout controls are not refreshed every second. Optional browser notifications require permission and may be restricted by the browser or embedded frame.
 
@@ -38,4 +39,4 @@ python -m pytest
 
 ## Limitations and next steps
 
-Progression cues are deterministic suggestions based on completed set history and never change weights automatically. Live Workout supports manual routines and strength days from a Gemini weekly plan. Set `GEMINI_API_KEY` to generate that plan; the rest of FitPilot runs without an AI API key. AI coaching is not included. FitPilot is not a medical tool. Browser notifications may be unavailable in some mobile browsers; the in-app timer remains the fallback.
+Progression cues are deterministic suggestions based on completed set history and never change weights automatically. Live Workout supports manual routines and strength days from a Gemini weekly plan. Set `GEMINI_API_KEY` to generate that plan or to use the Trainer page. Trainer replies are general training guidance, not medical advice, and are not stored. The rest of FitPilot runs without an AI API key. FitPilot is not a medical tool. Browser notifications may be unavailable in some mobile browsers; the in-app timer remains the fallback.

@@ -96,7 +96,9 @@ def build_prompt(profile: dict, counts: dict, extra_note: str) -> str:
 def generate_week(profile: dict, extra_note: str = "", generate=None, model: str | None = None) -> GeneratedWeek:
     counts = resolve_day_counts(profile)
     prompt = build_prompt(profile, counts, extra_note)
-    raw = generate(prompt) if generate is not None else _call_gemini(prompt, model)
+    raw = generate(prompt) if generate is not None else _call_gemini(
+        prompt, model, json_schema=gemini_response_schema(),
+    )
     week = _parse_week(raw)
     _assert_counts(week, counts)
     return week
@@ -148,31 +150,50 @@ def gemini_response_schema() -> dict:
     return schema
 
 
-def _call_gemini(prompt: str, model: str | None = None) -> str:
+def generate_text(prompt: str, model: str | None = None) -> str:
+    return _call_gemini(prompt, model)
+
+
+def _call_gemini(prompt: str, model: str | None = None, *, json_schema: dict | None = None) -> str:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    plan_request = json_schema is not None
     if not api_key:
-        raise ValueError("Add GEMINI_API_KEY to your .env file to generate a weekly plan.")
+        message = (
+            "Add GEMINI_API_KEY to your .env file to generate a weekly plan."
+            if plan_request
+            else "Add GEMINI_API_KEY to your .env file to use the trainer."
+        )
+        raise ValueError(message)
     try:
         from google import genai
         from google.genai import errors, types
     except ImportError as error:
-        raise ValueError("Install google-genai to generate a weekly plan.") from error
+        message = (
+            "Install google-genai to generate a weekly plan."
+            if plan_request
+            else "Install google-genai to use the trainer."
+        )
+        raise ValueError(message) from error
     client = genai.Client(api_key=api_key)
     model = resolve_gemini_model(model)
+    config = {
+        "automatic_function_calling": types.AutomaticFunctionCallingConfig(disable=True),
+        "thinking_config": types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
+    }
+    if plan_request:
+        config["response_mime_type"] = "application/json"
+        config["response_schema"] = json_schema
     try:
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=gemini_response_schema(),
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
-            ),
+            config=types.GenerateContentConfig(**config),
         )
     except errors.APIError as error:
-        raise ValueError(error.message or "Gemini could not generate a plan.") from error
+        fallback = "Gemini could not generate a plan." if plan_request else "Gemini could not reply."
+        raise ValueError(error.message or fallback) from error
     text = getattr(response, "text", None)
     if not text:
-        raise ValueError("Gemini returned an empty plan.")
+        empty = "Gemini returned an empty plan." if plan_request else "Gemini returned an empty reply."
+        raise ValueError(empty)
     return text

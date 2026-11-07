@@ -4,7 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from models.schemas import StrengthSetInput, StrengthWorkoutInput
-from services import database, strength_service
+from services import database, routine_service, strength_service
+from services.log_defaults import strength_log_defaults
 from utils.calculations import kg_to_pounds, pounds_to_kg
 
 
@@ -17,53 +18,120 @@ if profile is None:
     st.warning("Set up your athlete profile on the Dashboard before logging workouts.")
     st.stop()
 
+def _seed(key: str, value) -> None:
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+def _save_strength_session(workout_date, session_name, workout_notes, unit, exercises) -> None:
+    try:
+        validated = StrengthWorkoutInput(
+            workout_date=workout_date, session_name=session_name.strip(), notes=workout_notes,
+            exercises=[StrengthSetInput(
+                exercise_name=name.strip(), sets=sets, reps=reps,
+                weight_kg=pounds_to_kg(weight) if unit == "lb" else weight,
+                rpe=rpe, pain=pain, notes=note,
+            ) for name, sets, reps, weight, rpe, pain, note in exercises],
+        )
+        strength_service.add_workout(validated)
+        st.success("Strength session saved.")
+    except Exception as error:
+        st.error(f"Session not saved: {error}")
+
+
 tab_log, tab_history, tab_progress = st.tabs(["Log session", "History and edits", "Progress"])
 with tab_log:
-    with st.form("strength_log"):
-        top1, top2, top3 = st.columns(3)
-        with top1:
-            workout_date = st.date_input("Workout date", value=date.today())
-            session_name = st.selectbox("Session", ["Upper Body", "Lower Body", "Push", "Pull", "Full Body", "Custom"])
-            if session_name == "Custom":
-                session_name = st.text_input("Session name")
-        with top2:
-            unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True)
-            exercise_count = st.number_input("Exercises", min_value=1, max_value=8, value=3)
-        with top3:
-            workout_notes = st.text_input("Session notes", placeholder="Optional")
-            st.caption("Weights are stored in kilograms; pounds are converted on save.")
+    routines = routine_service.list_routines()
+    routine_labels = {"Log from scratch": None}
+    routine_labels.update({f"{routine['name']} · #{routine['id']}": routine["id"] for routine in routines})
+    selected_routine = None
+    if routines:
+        selected_label = st.selectbox("Start from a routine", list(routine_labels), key="strength_log_routine")
+        selected_id = routine_labels[selected_label]
+        selected_routine = next((routine for routine in routines if routine["id"] == selected_id), None)
 
-        exercises = []
-        common_exercises = ["Bench Press", "Squat", "Deadlift", "Overhead Press", "Barbell Row", "Pull-Up", "Lat Pulldown", "Bicep Curl", "Tricep Pushdown", "Leg Press", "Romanian Deadlift", "Dumbbell Bench Press", "Custom"]
-        for index in range(int(exercise_count)):
-            st.markdown(f"**Exercise {index + 1}**")
-            columns = st.columns([2, 1, 1, 1, 1, 1])
-            exercise_name = columns[0].selectbox("Exercise", common_exercises, key=f"exercise_{index}")
-            if exercise_name == "Custom":
-                exercise_name = columns[0].text_input("Custom name", key=f"custom_exercise_{index}")
-            sets = columns[1].number_input("Sets", 1, 20, 3, key=f"sets_{index}")
-            reps = columns[2].number_input("Reps / set", 1, 100, 8, key=f"reps_{index}")
-            weight = columns[3].number_input(f"Weight ({unit})", 0.0, 1000.0, 20.0, step=2.5, key=f"weight_{index}")
-            rpe = columns[4].number_input("RPE", 1.0, 10.0, 7.0, step=0.5, key=f"rpe_{index}")
-            pain = columns[5].checkbox("Pain", key=f"pain_{index}")
-            note = st.text_input("Exercise notes", key=f"exercise_note_{index}")
-            exercises.append((exercise_name, int(sets), int(reps), float(weight), float(rpe), pain, note))
+    if selected_routine is None:
+        with st.form("strength_log"):
+            top1, top2, top3 = st.columns(3)
+            with top1:
+                workout_date = st.date_input("Workout date", value=date.today())
+                session_name = st.selectbox("Session", ["Upper Body", "Lower Body", "Push", "Pull", "Full Body", "Custom"])
+                if session_name == "Custom":
+                    session_name = st.text_input("Session name")
+            with top2:
+                unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True)
+                exercise_count = st.number_input("Exercises", min_value=1, max_value=8, value=3)
+            with top3:
+                workout_notes = st.text_input("Session notes", placeholder="Optional")
+                st.caption("Weights are stored in kilograms; pounds are converted on save.")
 
-        submitted = st.form_submit_button("Save strength session", type="primary")
-    if submitted:
-        try:
-            validated = StrengthWorkoutInput(
-                workout_date=workout_date, session_name=session_name.strip(), notes=workout_notes,
-                exercises=[StrengthSetInput(
-                    exercise_name=name.strip(), sets=sets, reps=reps,
-                    weight_kg=pounds_to_kg(weight) if unit == "lb" else weight,
-                    rpe=rpe, pain=pain, notes=note,
-                ) for name, sets, reps, weight, rpe, pain, note in exercises],
-            )
-            strength_service.add_workout(validated)
-            st.success("Strength session saved.")
-        except Exception as error:
-            st.error(f"Session not saved: {error}")
+            exercises = []
+            common_exercises = ["Bench Press", "Squat", "Deadlift", "Overhead Press", "Barbell Row", "Pull-Up", "Lat Pulldown", "Bicep Curl", "Tricep Pushdown", "Leg Press", "Romanian Deadlift", "Dumbbell Bench Press", "Custom"]
+            for index in range(int(exercise_count)):
+                st.markdown(f"**Exercise {index + 1}**")
+                columns = st.columns([2, 1, 1, 1, 1, 1])
+                exercise_name = columns[0].selectbox("Exercise", common_exercises, key=f"exercise_{index}")
+                if exercise_name == "Custom":
+                    exercise_name = columns[0].text_input("Custom name", key=f"custom_exercise_{index}")
+                sets = columns[1].number_input("Sets", 1, 20, 3, key=f"sets_{index}")
+                reps = columns[2].number_input("Reps / set", 1, 100, 8, key=f"reps_{index}")
+                weight = columns[3].number_input(f"Weight ({unit})", 0.0, 1000.0, 20.0, step=2.5, key=f"weight_{index}")
+                rpe = columns[4].number_input("RPE", 1.0, 10.0, 7.0, step=0.5, key=f"rpe_{index}")
+                pain = columns[5].checkbox("Pain", key=f"pain_{index}")
+                note = st.text_input("Exercise notes", key=f"exercise_note_{index}")
+                exercises.append((exercise_name, int(sets), int(reps), float(weight), float(rpe), pain, note))
+
+            submitted = st.form_submit_button("Save strength session", type="primary")
+        if submitted:
+            _save_strength_session(workout_date, session_name, workout_notes, unit, exercises)
+    else:
+        defaults = strength_log_defaults(selected_routine)
+        routine_id = selected_routine["id"]
+        with st.form(f"strength_log_{routine_id}"):
+            top1, top2, top3 = st.columns(3)
+            with top1:
+                workout_date = st.date_input("Workout date", value=date.today(), key=f"log_strength_date_{routine_id}")
+                _seed(f"log_strength_session_{routine_id}", defaults["session_name"])
+                session_name = st.text_input("Session name", key=f"log_strength_session_{routine_id}")
+            with top2:
+                _seed(f"log_strength_unit_{routine_id}", "kg")
+                unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True, key=f"log_strength_unit_{routine_id}")
+            with top3:
+                _seed(f"log_strength_notes_{routine_id}", defaults["notes"])
+                workout_notes = st.text_input("Session notes", key=f"log_strength_notes_{routine_id}")
+                st.caption("Weights are stored in kilograms; pounds are converted on save.")
+
+            exercises = []
+            for index, exercise in enumerate(defaults["exercises"]):
+                st.markdown(f"**{exercise['exercise_name']}**")
+                st.caption(f"Planned {exercise['target_reps_min']}–{exercise['target_reps_max']} reps")
+                columns = st.columns([2, 1, 1, 1, 1, 1])
+                name_key = f"log_strength_name_{routine_id}_{index}"
+                sets_key = f"log_strength_sets_{routine_id}_{index}"
+                reps_key = f"log_strength_reps_{routine_id}_{index}"
+                weight_key = f"log_strength_weight_{routine_id}_{index}"
+                rpe_key = f"log_strength_rpe_{routine_id}_{index}"
+                pain_key = f"log_strength_pain_{routine_id}_{index}"
+                note_key = f"log_strength_exercise_note_{routine_id}_{index}"
+                _seed(name_key, exercise["exercise_name"])
+                _seed(sets_key, min(20, max(1, exercise["sets"])))
+                _seed(reps_key, min(100, max(1, exercise["reps"])))
+                _seed(weight_key, min(1000.0, max(0.0, exercise["weight_kg"])))
+                _seed(rpe_key, 7.0)
+                _seed(pain_key, False)
+                _seed(note_key, exercise["notes"])
+                exercise_name = columns[0].text_input("Exercise", key=name_key)
+                sets = columns[1].number_input("Sets", 1, 20, key=sets_key)
+                reps = columns[2].number_input("Reps / set", 1, 100, key=reps_key)
+                weight = columns[3].number_input(f"Weight ({unit})", 0.0, 1000.0, step=2.5, key=weight_key)
+                rpe = columns[4].number_input("RPE", 1.0, 10.0, step=0.5, key=rpe_key)
+                pain = columns[5].checkbox("Pain", key=pain_key)
+                note = st.text_input("Exercise notes", key=note_key)
+                exercises.append((exercise_name, int(sets), int(reps), float(weight), float(rpe), pain, note))
+
+            submitted = st.form_submit_button("Save strength session", type="primary")
+        if submitted:
+            _save_strength_session(workout_date, session_name, workout_notes, unit, exercises)
 
 with tab_history:
     workouts = strength_service.list_workouts()
