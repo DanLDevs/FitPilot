@@ -51,8 +51,22 @@ def test_live_workout_autosave_resume_and_completed_analytics(tmp_path) -> None:
 
     live_workout_service.finish_workout(workout_id, db_path)
     assert live_workout_service.get_active_workout(db_path) is None
-    assert strength_service.list_workouts(db_path)[0]["id"] == workout_id
-    assert len(strength_service.list_sets(db_path)) == 0
+    assert strength_service.list_workouts(db_path) == []
+    assert strength_service.list_sets(db_path) == []
+
+
+def test_finish_keeps_only_completed_sets(tmp_path) -> None:
+    db_path = tmp_path / "partial-finish.db"
+    database.init_database(db_path)
+    database.save_profile(_profile(), db_path)
+    workout_id = live_workout_service.start_workout(_live_input(), db_path)
+    active = live_workout_service.get_active_workout(db_path)
+    live_workout_service.complete_set(workout_id, active["exercises"][0]["sets"][0]["id"], db_path=db_path)
+    live_workout_service.finish_workout(workout_id, db_path)
+    saved = strength_service.list_workouts(db_path)
+    assert saved[0]["id"] == workout_id
+    assert saved[0]["set_count"] == 1
+    assert len(strength_service.get_workout(workout_id, db_path)["exercises"]) == 1
 
 
 def test_finished_live_sets_stay_distinct_when_edited(tmp_path) -> None:

@@ -41,7 +41,8 @@ def _complete_set(
 def _initialize_set_state(set_row: dict) -> None:
     defaults = {
         "reps": set_row["reps"], "weight_kg": set_row["weight_kg"],
-        "rpe": set_row["rpe"], "pain": bool(set_row["pain"]),
+        "rpe": 7.0 if set_row["rpe"] is None else set_row["rpe"],
+        "pain": bool(set_row["pain"]),
         "technique": bool(set_row["technique_concern"]), "notes": set_row["notes"] or "",
     }
     for field, value in defaults.items():
@@ -330,11 +331,14 @@ else:
     st.caption(f"Completed volume: {volume_kg:,.0f} kg · {completed_sets} sets")
     finish_col, discard_col = st.columns(2)
     if finish_col.button("Finish workout", type="primary", key=f"finish_{workout_id}"):
-        live_workout_service.finish_workout(workout_id)
-        st.session_state["live_last_summary"] = {
-            "sets": completed_sets, "volume_kg": volume_kg, "name": active["session_name"],
-        }
-        st.rerun()
+        if completed_sets == 0:
+            st.warning("Complete at least one set before finishing, or discard the session.")
+        else:
+            live_workout_service.finish_workout(workout_id)
+            st.session_state["live_last_summary"] = {
+                "sets": completed_sets, "volume_kg": volume_kg, "name": active["session_name"],
+            }
+            st.rerun()
     confirm_discard = discard_col.checkbox("Confirm discard", key=f"confirm_discard_{workout_id}")
     if discard_col.button("Discard workout", disabled=not confirm_discard, key=f"discard_{workout_id}"):
         live_workout_service.discard_workout(workout_id)
