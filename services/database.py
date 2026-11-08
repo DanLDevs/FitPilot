@@ -69,9 +69,30 @@ def init_database(db_path: str | Path | None = None) -> None:
                 pain INTEGER NOT NULL DEFAULT 0 CHECK (pain IN (0, 1)),
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS workout_routines (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS routine_exercises (
+                id INTEGER PRIMARY KEY,
+                routine_id INTEGER NOT NULL REFERENCES workout_routines(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                exercise_name TEXT NOT NULL,
+                sets INTEGER NOT NULL CHECK (sets > 0),
+                target_reps_min INTEGER NOT NULL CHECK (target_reps_min > 0),
+                target_reps_max INTEGER NOT NULL CHECK (target_reps_max >= target_reps_min),
+                starting_weight_kg REAL CHECK (starting_weight_kg IS NULL OR starting_weight_kg >= 0),
+                notes TEXT NOT NULL DEFAULT '',
+                UNIQUE(routine_id, position)
+            );
             CREATE INDEX IF NOT EXISTS idx_strength_date ON strength_workouts(workout_date);
             CREATE INDEX IF NOT EXISTS idx_strength_exercise ON strength_sets(exercise_name);
             CREATE INDEX IF NOT EXISTS idx_running_date ON running_workouts(workout_date);
+            CREATE INDEX IF NOT EXISTS idx_routine_exercises ON routine_exercises(routine_id, position);
             """
         )
         _migrate_database(connection)

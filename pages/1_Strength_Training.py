@@ -1,4 +1,5 @@
 from datetime import date
+from uuid import uuid4
 
 import pandas as pd
 import streamlit as st
@@ -7,6 +8,7 @@ from models.schemas import StrengthSetInput, StrengthWorkoutInput
 from services import database, routine_service, strength_service
 from services.log_defaults import strength_log_defaults
 from utils.calculations import kg_to_pounds, pounds_to_kg
+from services import progression_service
 
 
 st.set_page_config(page_title="Strength | FitPilot", page_icon="F", layout="wide")
@@ -192,6 +194,22 @@ with tab_progress:
         frame = pd.DataFrame(rows)
         options = sorted(frame["exercise_name"].unique())
         selected_exercise = st.selectbox("Exercise", options)
+        recommendation = progression_service.recommend_progression(rows, selected_exercise)
+        st.markdown("**Progression check**")
+        if recommendation["status"] == "increase":
+            st.success(recommendation["explanation"])
+        elif recommendation["status"] == "caution":
+            st.warning(recommendation["explanation"])
+        elif recommendation["status"] == "insufficient":
+            st.info(recommendation["explanation"])
+        else:
+            st.info(recommendation["explanation"])
+        metrics = recommendation["supporting_metrics"]
+        if metrics:
+            st.caption(
+                f"Latest session: {metrics['date']} · {metrics['sets']} sets · "
+                f"{metrics['average_reps']:.1f} avg reps · {metrics['average_weight_kg']:.1f} kg avg load"
+            )
         progression = frame[frame["exercise_name"] == selected_exercise].groupby("workout_date", as_index=False).agg(weight_kg=("weight_kg", "max"), reps=("reps", "max"))
         progression["Weight"] = progression["weight_kg"].map(kg_to_pounds)
         st.line_chart(progression.set_index("workout_date")[["Weight"]], y_label="Maximum weight (lb)")

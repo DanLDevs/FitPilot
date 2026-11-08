@@ -1,26 +1,55 @@
 from pathlib import Path
 
-from models.schemas import StrengthWorkoutInput
+from models.schemas import (
+    StrengthExerciseLogInput,
+    StrengthSetInput,
+    StrengthWorkoutInput,
+    StrengthWorkoutLogInput,
+)
 from services.database import get_connection
 
 
-def add_workout(workout: StrengthWorkoutInput, db_path: str | Path | None = None) -> int:
-    with get_connection(db_path) as connection:
-        cursor = connection.execute(
-            "INSERT INTO strength_workouts (workout_date, session_name, notes) VALUES (?, ?, ?)",
-            (workout.workout_date.isoformat(), workout.session_name, workout.notes),
-        )
-        workout_id = cursor.lastrowid
-        for exercise in workout.exercises:
-            for set_number in range(1, exercise.sets + 1):
+def _insert_workout(connection, workout: StrengthWorkoutInput | StrengthWorkoutLogInput) -> int:
+    cursor = connection.execute(
+        "INSERT INTO strength_workouts (workout_date, session_name, notes) VALUES (?, ?, ?)",
+        (workout.workout_date.isoformat(), workout.session_name, workout.notes),
+    )
+    workout_id = int(cursor.lastrowid)
+    for exercise in workout.exercises:
+        if isinstance(exercise, StrengthExerciseLogInput):
+            for set_number, performed_set in enumerate(exercise.sets, start=1):
                 connection.execute(
                     """INSERT INTO strength_sets
-                    (workout_id, exercise_name, set_number, reps, weight_kg, rpe, notes, pain)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (workout_id, exercise.exercise_name.strip(), set_number, exercise.reps,
-                     exercise.weight_kg, exercise.rpe, exercise.notes, int(exercise.pain)),
+                    (workout_id, exercise_name, set_number, reps, weight_kg, rpe, notes,
+                    pain, technique_concern, target_reps_min, target_reps_max)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (workout_id, exercise.exercise_name.strip(), set_number, performed_set.reps,
+                     performed_set.weight_kg, performed_set.rpe, performed_set.notes,
+                     int(performed_set.pain), int(performed_set.technique_concern),
+                     exercise.target_reps_min, exercise.target_reps_max),
                 )
-        return int(workout_id)
+        else:
+            _insert_legacy_exercise(connection, workout_id, exercise)
+    return workout_id
+
+
+def _insert_legacy_exercise(connection, workout_id: int, exercise: StrengthSetInput) -> None:
+    for set_number in range(1, exercise.sets + 1):
+        connection.execute(
+            """INSERT INTO strength_sets
+            (workout_id, exercise_name, set_number, reps, weight_kg, rpe, notes,
+            pain, technique_concern, target_reps_min, target_reps_max)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (workout_id, exercise.exercise_name.strip(), set_number, exercise.reps,
+             exercise.weight_kg, exercise.rpe, exercise.notes, int(exercise.pain),
+             int(exercise.technique_concern), exercise.target_reps_min,
+             exercise.target_reps_max),
+        )
+
+
+def add_workout(workout: StrengthWorkoutInput | StrengthWorkoutLogInput, db_path: str | Path | None = None) -> int:
+    with get_connection(db_path) as connection:
+        return _insert_workout(connection, workout)
 
 
 def list_workouts(db_path: str | Path | None = None, limit: int = 100) -> list[dict]:

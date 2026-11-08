@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
+from typing import Self
 
 class ProfileInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
@@ -22,9 +23,20 @@ class StrengthSetInput(BaseModel):
     sets: int = Field(ge=1, le=20)
     reps: int = Field(ge=1, le=100)
     weight_kg: float = Field(ge=0, le=1000)
+    target_reps_min: int | None = Field(default=None, ge=1, le=100)
+    target_reps_max: int | None = Field(default=None, ge=1, le=100)
     rpe: float | None = Field(default=None, ge=1, le=10)
     notes: str = ""
     pain: bool = False
+    technique_concern: bool = False
+
+    @model_validator(mode="after")
+    def validate_optional_rep_range(self) -> Self:
+        if (self.target_reps_min is None) != (self.target_reps_max is None):
+            raise ValueError("Both target rep limits must be set together")
+        if self.target_reps_min is not None and self.target_reps_min > self.target_reps_max:
+            raise ValueError("Minimum target reps cannot exceed maximum target reps")
+        return self
 
 
 class StrengthWorkoutInput(BaseModel):
@@ -32,6 +44,37 @@ class StrengthWorkoutInput(BaseModel):
     session_name: str = Field(min_length=1, max_length=100)
     notes: str = ""
     exercises: list[StrengthSetInput] = Field(min_length=1)
+
+
+class StrengthSetLogInput(BaseModel):
+    reps: int = Field(ge=1, le=100)
+    weight_kg: float = Field(ge=0, le=1000)
+    rpe: float | None = Field(default=None, ge=1, le=10)
+    pain: bool = False
+    technique_concern: bool = False
+    notes: str = ""
+
+
+class StrengthExerciseLogInput(BaseModel):
+    exercise_name: str = Field(min_length=1, max_length=100)
+    target_reps_min: int | None = Field(default=None, ge=1, le=100)
+    target_reps_max: int | None = Field(default=None, ge=1, le=100)
+    sets: list[StrengthSetLogInput] = Field(min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def validate_rep_range(self) -> Self:
+        if (self.target_reps_min is None) != (self.target_reps_max is None):
+            raise ValueError("Both target rep limits must be set together")
+        if self.target_reps_min is not None and self.target_reps_min > self.target_reps_max:
+            raise ValueError("Minimum target reps cannot exceed maximum target reps")
+        return self
+
+
+class StrengthWorkoutLogInput(BaseModel):
+    workout_date: date
+    session_name: str = Field(min_length=1, max_length=100)
+    notes: str = ""
+    exercises: list[StrengthExerciseLogInput] = Field(min_length=1)
 
 
 class LiveSetInput(BaseModel):
