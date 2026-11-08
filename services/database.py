@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_DB_PATH = Path(os.getenv("FITPILOT_DB_PATH", "fitpilot.db"))
+CURRENT_SCHEMA_VERSION = 4
 
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -94,22 +95,110 @@ def init_database(db_path: str | Path | None = None) -> None:
             CREATE INDEX IF NOT EXISTS idx_routine_exercises ON routine_exercises(routine_id, position);
             """
         )
-        _migrate_strength_sets(connection)
-        connection.execute("PRAGMA user_version = 1")
+        _migrate_database(connection)
 
 
-def _migrate_strength_sets(connection: sqlite3.Connection) -> None:
-    existing_columns = {
-        row["name"] for row in connection.execute("PRAGMA table_info(strength_sets)").fetchall()
-    }
-    additions = {
-        "target_reps_min": "INTEGER",
-        "target_reps_max": "INTEGER",
-        "technique_concern": "INTEGER NOT NULL DEFAULT 0 CHECK (technique_concern IN (0, 1))",
-    }
+def _migrate_database(connection: sqlite3.Connection) -> None:
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if version < 2:
+        _add_columns(connection, "strength_workouts", {
+            "status": "TEXT NOT NULL DEFAULT 'completed' CHECK (status IN ('active', 'completed', 'discarded'))",
+            "completed_at": "TEXT",
+            "default_rest_seconds": "INTEGER NOT NULL DEFAULT 90 CHECK (default_rest_seconds >= 0)",
+            "auto_start_rest": "INTEGER NOT NULL DEFAULT 1 CHECK (auto_start_rest IN (0, 1))",
+            "rest_ends_at": "TEXT",
+            "rest_paused_remaining_seconds": "INTEGER",
+            "rest_notification_sent": "INTEGER NOT NULL DEFAULT 0 CHECK (rest_notification_sent IN (0, 1))",
+        })
+        _add_columns(connection, "strength_sets", {
+            "target_reps_min": "INTEGER",
+            "target_reps_max": "INTEGER",
+            "technique_concern": "INTEGER NOT NULL DEFAULT 0 CHECK (technique_concern IN (0, 1))",
+            "is_completed": "INTEGER NOT NULL DEFAULT 1 CHECK (is_completed IN (0, 1))",
+            "exercise_key": "TEXT NOT NULL DEFAULT ''",
+            "rest_seconds": "INTEGER NOT NULL DEFAULT 90 CHECK (rest_seconds >= 0)",
+        })
+        connection.execute(
+            "UPDATE strength_sets SET exercise_key = 'legacy:' || exercise_name WHERE exercise_key = ''"
+        )
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS workout_routines (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                default_rest_seconds INTEGER NOT NULL DEFAULT 90 CHECK (default_rest_seconds >= 0),
+                auto_start_rest INTEGER NOT NULL DEFAULT 1 CHECK (auto_start_rest IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS routine_exercises (
+                id INTEGER PRIMARY KEY,
+                routine_id INTEGER NOT NULL REFERENCES workout_routines(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                exercise_name TEXT NOT NULL,
+                sets INTEGER NOT NULL CHECK (sets > 0),
+                target_reps_min INTEGER NOT NULL CHECK (target_reps_min > 0),
+                target_reps_max INTEGER NOT NULL CHECK (target_reps_max >= target_reps_min),
+                starting_weight_kg REAL CHECK (starting_weight_kg IS NULL OR starting_weight_kg >= 0),
+                rest_seconds INTEGER CHECK (rest_seconds IS NULL OR rest_seconds >= 0),
+                notes TEXT NOT NULL DEFAULT '',
+                UNIQUE(routine_id, position)
+            );
+            CREATE INDEX IF NOT EXISTS idx_strength_status_date ON strength_workouts(status, workout_date);
+            CREATE INDEX IF NOT EXISTS idx_routine_exercises ON routine_exercises(routine_id, position);
+            """
+        )
+    if version < 3:
+        # Version 2 created these tables before rest settings existed, and
+        # CREATE TABLE IF NOT EXISTS does not add columns to that older copy.
+        _add_columns(connection, "workout_routines", {
+            "default_rest_seconds": "INTEGER NOT NULL DEFAULT 90 CHECK (default_rest_seconds >= 0)",
+            "auto_start_rest": "INTEGER NOT NULL DEFAULT 1 CHECK (auto_start_rest IN (0, 1))",
+        })
+        _add_columns(connection, "routine_exercises", {
+            "rest_seconds": "INTEGER CHECK (rest_seconds IS NULL OR rest_seconds >= 0)",
+        })
+    if version < 4:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS training_plans (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS plan_days (
+                id INTEGER PRIMARY KEY,
+                plan_id INTEGER NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                weekday TEXT NOT NULL DEFAULT '',
+                session_kind TEXT NOT NULL CHECK (session_kind IN ('strength', 'running')),
+                title TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                routine_id INTEGER REFERENCES workout_routines(id) ON DELETE SET NULL,
+                run_type TEXT,
+                distance_km REAL CHECK (distance_km IS NULL OR distance_km > 0),
+                duration_minutes REAL CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+                UNIQUE(plan_id, position)
+            );
+            CREATE INDEX IF NOT EXISTS idx_plan_days ON plan_days(plan_id, position);
+            """
+        )
+        _add_columns(connection, "workout_routines", {
+            "plan_id": "INTEGER REFERENCES training_plans(id)",
+        })
+    if version < CURRENT_SCHEMA_VERSION:
+        connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
+
+
+def _add_columns(connection: sqlite3.Connection, table: str, additions: dict[str, str]) -> None:
+    existing = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
     for column, definition in additions.items():
-        if column not in existing_columns:
-            connection.execute(f"ALTER TABLE strength_sets ADD COLUMN {column} {definition}")
+        if column not in existing:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def get_profile(db_path: str | Path | None = None) -> dict | None:
