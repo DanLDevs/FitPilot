@@ -54,6 +54,9 @@ def start_workout(workout: LiveWorkoutInput, db_path: str | Path | None = None) 
         ).fetchone()
         if existing:
             raise ValueError("An active workout already exists. Resume or discard it first.")
+        active_run = connection.execute("SELECT id FROM active_runs LIMIT 1").fetchone()
+        if active_run:
+            raise ValueError("An active workout already exists. Resume or discard it first.")
         cursor = connection.execute(
             """INSERT INTO strength_workouts
             (workout_date, session_name, notes, status, default_rest_seconds, auto_start_rest)

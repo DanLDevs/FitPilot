@@ -87,7 +87,7 @@ def test_active_workout_migration_preserves_legacy_completed_data(tmp_path) -> N
 
     assert workout == ("completed", 90)
     assert set_row == (1, "legacy:Bench Press", 0)
-    assert version == 4
+    assert version == 5
     assert routine_tables == 2
 
 
@@ -129,7 +129,7 @@ def test_partial_schema_version_still_receives_live_workout_columns(tmp_path) ->
 
     assert status == "completed"
     assert completed == 1
-    assert version == 4
+    assert version == 5
 
 
 def test_existing_routines_gain_rest_columns_without_losing_rows(tmp_path) -> None:
@@ -181,7 +181,7 @@ def test_existing_routines_gain_rest_columns_without_losing_rows(tmp_path) -> No
     assert routines[0]["exercises"][0]["exercise_name"] == "Bench Press"
     assert routines[0]["exercises"][0]["rest_seconds"] is None
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
         assert connection.execute("SELECT plan_id FROM workout_routines WHERE id = 4").fetchone()[0] is None
 
 
