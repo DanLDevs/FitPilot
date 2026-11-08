@@ -23,12 +23,14 @@ st.markdown(
     h1, h2, h3 { letter-spacing: 0; color: var(--fitpilot-text); }
     div[data-testid="stMetric"] { background: var(--fitpilot-surface); border: 1px solid var(--fitpilot-border); padding: 16px; border-radius: 8px; }
     div[data-testid="stMetricLabel"], [data-testid="stCaptionContainer"] { color: var(--fitpilot-muted); }
-    .fitpilot-kicker { color: #63c58d; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; }
+    .stApp p.fitpilot-brand { color: var(--fitpilot-text); font-size: 2.6rem; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em; margin: 0 0 0.2rem 0; }
+    .stApp p.fitpilot-kicker { color: #63c58d; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 0.75rem 0; }
     </style>""",
     unsafe_allow_html=True,
 )
 
 profile = database.get_profile()
+st.markdown('<p class="fitpilot-brand">FitPilot</p>', unsafe_allow_html=True)
 st.markdown('<p class="fitpilot-kicker">TRAINING, WITH CONTEXT</p>', unsafe_allow_html=True)
 st.title(f"Welcome{', ' + profile['name'] if profile else ''}")
 st.caption("A clear view of your strength work, running, and weekly rhythm.")
