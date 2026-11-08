@@ -11,6 +11,7 @@ from services.gemini_plan_service import (
     generate_week,
     resolve_day_counts,
 )
+from utils.calculations import kg_to_pounds, pounds_to_kg
 
 
 st.set_page_config(page_title="Workout Routines | FitPilot", page_icon="F", layout="wide")
@@ -21,6 +22,19 @@ st.caption("Create reusable templates for your live sessions.")
 if profile is None:
     st.warning("Set up your athlete profile on the Dashboard before creating routines.")
     st.stop()
+unit = profile.get("weight_unit") if profile.get("weight_unit") in ("kg", "lb") else "kg"
+
+
+def _display_weight(weight_kg: float, display_unit: str) -> float:
+    if display_unit == "lb":
+        value = round(kg_to_pounds(weight_kg), 1)
+    else:
+        value = float(weight_kg)
+    return min(1000.0, max(0.0, value))
+
+
+def _stored_weight(weight: float, display_unit: str) -> float:
+    return pounds_to_kg(weight) if display_unit == "lb" else float(weight)
 
 EXERCISES = [
     "Bench Press", "Squat", "Deadlift", "Overhead Press", "Barbell Row", "Pull-Up",
@@ -43,8 +57,12 @@ def _add_row(exercise: dict | None = None) -> None:
     st.session_state[_key(row_id, "sets")] = int(exercise.get("sets", 3))
     st.session_state[_key(row_id, "minimum")] = int(exercise.get("target_reps_min", 8))
     st.session_state[_key(row_id, "maximum")] = int(exercise.get("target_reps_max", 12))
-    st.session_state[_key(row_id, "weight_enabled")] = exercise.get("starting_weight_kg") is not None
-    st.session_state[_key(row_id, "weight")] = float(exercise.get("starting_weight_kg") or 20)
+    stored_weight = exercise.get("starting_weight_kg")
+    source_kg = None if stored_weight is None else float(stored_weight)
+    st.session_state[_key(row_id, "weight_enabled")] = source_kg is not None
+    st.session_state[_key(row_id, "weight_kg")] = source_kg
+    st.session_state[_key(row_id, "weight")] = _display_weight(20.0 if source_kg is None else source_kg, unit)
+    st.session_state[_key(row_id, "weight_unit")] = unit
     st.session_state[_key(row_id, "rest_enabled")] = exercise.get("rest_seconds") is not None
     st.session_state[_key(row_id, "rest")] = int(exercise.get("rest_seconds") or 90)
     st.session_state[_key(row_id, "notes")] = exercise.get("notes", "")
@@ -59,6 +77,33 @@ def _clear_editor() -> None:
     st.session_state["routine_id"] = None
     st.session_state["routine_name"] = ""
     st.session_state["routine_notes"] = ""
+
+
+def _align_routine_weights(display_unit: str) -> None:
+    for row_id in list(st.session_state.get("routine_rows", [])):
+        weight_key = _key(row_id, "weight")
+        unit_key = _key(row_id, "weight_unit")
+        source_key = _key(row_id, "weight_kg")
+        if weight_key not in st.session_state:
+            continue
+        previous = st.session_state.get(unit_key)
+        current = float(st.session_state[weight_key])
+        if previous is None:
+            if st.session_state.get(source_key) is None:
+                st.session_state[source_key] = current
+            if display_unit != "kg":
+                st.session_state[weight_key] = _display_weight(float(st.session_state[source_key]), display_unit)
+            st.session_state[unit_key] = display_unit
+            continue
+        if previous == display_unit:
+            continue
+        source = st.session_state.get(source_key)
+        if source is None:
+            source = 20.0
+        previous_display = _display_weight(float(source), previous)
+        if abs(current - previous_display) < 0.05:
+            st.session_state[weight_key] = _display_weight(float(source), display_unit)
+        st.session_state[unit_key] = display_unit
 
 
 def _load_routine(routine_id: int | None) -> None:
@@ -222,6 +267,7 @@ selected_label = st.selectbox("Create or edit routine", list(routine_labels), ke
 selected_id = routine_labels[selected_label]
 if selected_id != st.session_state["routine_id"]:
     _load_routine(selected_id)
+_align_routine_weights(unit)
 
 st.text_input("Routine name", key="routine_name")
 st.text_area("Routine notes", key="routine_notes")
@@ -243,7 +289,18 @@ for index, row_id in enumerate(list(st.session_state["routine_rows"])):
         cols[4].checkbox("Starting load", key=_key(row_id, "weight_enabled"))
         cols[5].checkbox("Custom rest", key=_key(row_id, "rest_enabled"))
         if st.session_state[_key(row_id, "weight_enabled")]:
-            cols[4].number_input("Weight (kg)", 0.0, 1000.0, step=2.5, key=_key(row_id, "weight"))
+            weight_key = _key(row_id, "weight")
+            ready_key = _key(row_id, "weight_ready")
+            if not st.session_state.get(ready_key):
+                source = st.session_state.get(_key(row_id, "weight_kg"))
+                display = _display_weight(20.0 if source is None else float(source), unit)
+                current = st.session_state.get(weight_key)
+                if current is None or abs(float(current) - display) < 0.05 or float(current) == 0.0:
+                    if weight_key in st.session_state:
+                        del st.session_state[weight_key]
+                    st.session_state[weight_key] = display
+                st.session_state[ready_key] = True
+            cols[4].number_input(f"Weight ({unit})", 0.0, 1000.0, step=2.5, key=weight_key)
         if st.session_state[_key(row_id, "rest_enabled")]:
             cols[5].number_input("Rest (sec)", 0, 3600, step=15, key=_key(row_id, "rest"))
         cols[6].text_input("Exercise notes", key=_key(row_id, "notes"))
@@ -272,7 +329,10 @@ if save_col.button("Save routine", type="primary"):
                 sets=st.session_state[_key(row_id, "sets")],
                 target_reps_min=st.session_state[_key(row_id, "minimum")],
                 target_reps_max=st.session_state[_key(row_id, "maximum")],
-                starting_weight_kg=(st.session_state[_key(row_id, "weight")] if st.session_state[_key(row_id, "weight_enabled")] else None),
+                starting_weight_kg=(
+                    _stored_weight(st.session_state[_key(row_id, "weight")], unit)
+                    if st.session_state[_key(row_id, "weight_enabled")] else None
+                ),
                 rest_seconds=(st.session_state[_key(row_id, "rest")] if st.session_state[_key(row_id, "rest_enabled")] else None),
                 notes=st.session_state[_key(row_id, "notes")],
             ))
@@ -284,6 +344,13 @@ if save_col.button("Save routine", type="primary"):
             exercises=exercises,
         )
         routine_id = routine_service.save_routine(validated, routine_id=st.session_state["routine_id"])
+        for row_id in st.session_state["routine_rows"]:
+            if st.session_state[_key(row_id, "weight_enabled")]:
+                st.session_state[_key(row_id, "weight_kg")] = _stored_weight(
+                    st.session_state[_key(row_id, "weight")], unit,
+                )
+            else:
+                st.session_state[_key(row_id, "weight_kg")] = None
         st.session_state["routine_id"] = routine_id
         st.session_state["routine_pending_selection"] = f"{validated.name} · #{routine_id}"
         st.success("Routine saved. It is available from Live Workout.")

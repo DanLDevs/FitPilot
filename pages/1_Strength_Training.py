@@ -19,6 +19,7 @@ st.caption("Record sessions, monitor working volume, and revisit your lifting hi
 if profile is None:
     st.warning("Set up your athlete profile on the Dashboard before logging workouts.")
     st.stop()
+unit = profile.get("weight_unit") if profile.get("weight_unit") in ("kg", "lb") else "kg"
 
 def _seed(key: str, value) -> None:
     if key not in st.session_state:
@@ -29,6 +30,10 @@ def _display_weight(weight_kg: float, unit: str) -> float:
     if unit == "lb":
         return round(kg_to_pounds(weight_kg), 1)
     return float(weight_kg)
+
+
+def _stored_weight(weight: float, unit: str) -> float:
+    return pounds_to_kg(weight) if unit == "lb" else float(weight)
 
 
 def _seed_logged_weight(weight_key: str, suggested_kg: float, unit: str) -> None:
@@ -63,7 +68,7 @@ def _save_strength_session(workout_date, session_name, workout_notes, unit, exer
             workout_date=workout_date, session_name=session_name.strip(), notes=workout_notes,
             exercises=[StrengthSetInput(
                 exercise_name=name.strip(), sets=sets, reps=reps,
-                weight_kg=pounds_to_kg(weight) if unit == "lb" else weight,
+                weight_kg=_stored_weight(weight, unit),
                 rpe=rpe, pain=pain, notes=note,
             ) for name, sets, reps, weight, rpe, pain, note in exercises],
         )
@@ -85,6 +90,8 @@ with tab_log:
         selected_routine = next((routine for routine in routines if routine["id"] == selected_id), None)
 
     if selected_routine is None:
+        for index in range(8):
+            _seed_logged_weight(f"weight_{index}", 20.0, unit)
         with st.form("strength_log"):
             top1, top2, top3 = st.columns(3)
             with top1:
@@ -93,11 +100,9 @@ with tab_log:
                 if session_name == "Custom":
                     session_name = st.text_input("Session name")
             with top2:
-                unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True)
                 exercise_count = st.number_input("Exercises", min_value=1, max_value=8, value=3)
             with top3:
                 workout_notes = st.text_input("Session notes", placeholder="Optional")
-                st.caption("Weights are stored in kilograms; pounds are converted on save.")
 
             exercises = []
             common_exercises = ["Bench Press", "Squat", "Deadlift", "Overhead Press", "Barbell Row", "Pull-Up", "Lat Pulldown", "Bicep Curl", "Tricep Pushdown", "Leg Press", "Romanian Deadlift", "Dumbbell Bench Press", "Custom"]
@@ -109,7 +114,7 @@ with tab_log:
                     exercise_name = columns[0].text_input("Custom name", key=f"custom_exercise_{index}")
                 sets = columns[1].number_input("Sets", 1, 20, 3, key=f"sets_{index}")
                 reps = columns[2].number_input("Reps / set", 1, 100, 8, key=f"reps_{index}")
-                weight = columns[3].number_input(f"Weight ({unit})", 0.0, 1000.0, 20.0, step=2.5, key=f"weight_{index}")
+                weight = columns[3].number_input(f"Weight ({unit})", 0.0, 1000.0, step=2.5, key=f"weight_{index}")
                 rpe = columns[4].number_input("RPE", 1.0, 10.0, 7.0, step=0.5, key=f"rpe_{index}")
                 pain = columns[5].checkbox("Pain", key=f"pain_{index}")
                 note = st.text_input("Exercise notes", key=f"exercise_note_{index}")
@@ -122,10 +127,6 @@ with tab_log:
         defaults = strength_log_defaults(selected_routine)
         routine_id = selected_routine["id"]
         historical_sets = strength_service.list_sets()
-        unit_key = f"log_strength_unit_{routine_id}"
-        _seed(unit_key, "kg")
-        unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True, key=unit_key)
-        st.caption("Weights are stored in kilograms; pounds are converted on save.")
         with st.form(f"strength_log_{routine_id}"):
             top1, top2 = st.columns(2)
             with top1:
@@ -202,7 +203,9 @@ with tab_history:
                 set_id = exercise["id"]
                 name = cols[0].text_input("Exercise", exercise["exercise_name"], key=f"edit_exercise_{selected_id}_{set_id}")
                 reps = cols[1].number_input("Reps", 1, 100, int(exercise["reps"]), key=f"edit_reps_{selected_id}_{set_id}")
-                weight = cols[2].number_input("Weight (kg)", 0.0, 1000.0, float(exercise["weight_kg"]), key=f"edit_weight_{selected_id}_{set_id}")
+                weight_key = f"edit_weight_{selected_id}_{set_id}"
+                _seed_logged_weight(weight_key, float(exercise["weight_kg"]), unit)
+                weight = cols[2].number_input(f"Weight ({unit})", 0.0, 1000.0, step=2.5, key=weight_key)
                 rpe = cols[3].number_input(
                     "RPE", min_value=1.0, max_value=10.0, step=0.5,
                     value=None if exercise["rpe"] is None else float(exercise["rpe"]),
@@ -210,7 +213,7 @@ with tab_history:
                 )
                 edit_sets.append({
                     "id": set_id, "exercise_name": name, "reps": int(reps),
-                    "weight_kg": float(weight), "rpe": rpe,
+                    "weight_kg": _stored_weight(float(weight), unit), "rpe": rpe,
                 })
             update, delete = st.columns(2)
             with update:

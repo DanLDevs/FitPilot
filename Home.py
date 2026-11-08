@@ -46,6 +46,7 @@ if profile is None:
             training_days = st.slider("Training days per week", 1, 7, 4)
             session_minutes = st.number_input("Available minutes per session", 15, 300, 60, step=15)
         with col2:
+            weight_unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True)
             strength_days = st.slider("Preferred strength days", 0, 7, 2)
             running_days = st.slider("Preferred running days", 0, 7, 2)
             equipment = st.text_input("Available equipment", placeholder="Full gym, dumbbells, none...")
@@ -59,6 +60,7 @@ if profile is None:
                 training_days=training_days, strength_days=strength_days, running_days=running_days,
                 session_minutes=session_minutes, equipment=equipment,
                 fitness_goals=fitness_goals, existing_schedule=schedule,
+                weight_unit=weight_unit,
             )
             database.save_profile(saved_profile.model_dump())
             st.rerun()
@@ -82,6 +84,8 @@ with st.expander("Edit athlete profile"):
             training_days = st.slider("Training days per week", 1, 7, profile["training_days"])
             session_minutes = st.number_input("Available minutes per session", 15, 300, profile["session_minutes"], step=15)
         with col2:
+            saved_unit = profile.get("weight_unit") if profile.get("weight_unit") in ("kg", "lb") else "kg"
+            weight_unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True, index=0 if saved_unit == "kg" else 1)
             strength_days = st.slider("Preferred strength days", 0, 7, profile["strength_days"])
             running_days = st.slider("Preferred running days", 0, 7, profile["running_days"])
             equipment = st.text_input("Available equipment", value=profile["equipment"])
@@ -94,6 +98,7 @@ with st.expander("Edit athlete profile"):
                     training_days=training_days, strength_days=strength_days, running_days=running_days,
                     session_minutes=session_minutes, equipment=equipment,
                     fitness_goals=fitness_goals, existing_schedule=schedule,
+                    weight_unit=weight_unit,
                 )
                 database.save_profile(saved_profile.model_dump())
                 st.success("Profile updated.")

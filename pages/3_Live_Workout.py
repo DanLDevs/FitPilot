@@ -22,6 +22,7 @@ st.caption("Run the session as you train. Set changes are saved automatically.")
 if profile is None:
     st.warning("Set up your athlete profile on the Dashboard before starting a live workout.")
     st.stop()
+unit = profile.get("weight_unit") if profile.get("weight_unit") in ("kg", "lb") else "kg"
 
 
 def _set_key(set_id: int, field: str) -> str:
@@ -32,8 +33,34 @@ def _exercise_open_key(exercise_key: str) -> str:
     return f"live_ex_open_{exercise_key}"
 
 
+def _display_weight(weight_kg: float) -> float:
+    if unit == "lb":
+        return round(kg_to_pounds(weight_kg), 1)
+    return float(weight_kg)
+
+
+def _stored_weight(weight: float) -> float:
+    return pounds_to_kg(weight) if unit == "lb" else float(weight)
+
+
+def _sync_display_weight(weight_key: str, weight_kg: float) -> None:
+    display = min(1000.0, max(0.0, _display_weight(weight_kg)))
+    unit_key = f"{weight_key}_unit"
+    if weight_key not in st.session_state:
+        st.session_state[weight_key] = display
+        st.session_state[unit_key] = unit
+        return
+    previous_unit = st.session_state.get(unit_key)
+    if previous_unit == unit:
+        return
+    previous_display = min(1000.0, max(0.0, round(kg_to_pounds(weight_kg), 1) if previous_unit == "lb" else float(weight_kg)))
+    if abs(float(st.session_state[weight_key]) - previous_display) < 0.05:
+        st.session_state[weight_key] = display
+    st.session_state[unit_key] = unit
+
+
 def _show_session_cue(cue: dict) -> None:
-    message = progression_service.format_session_cue(cue, "kg")
+    message = progression_service.format_session_cue(cue, unit)
     if cue["status"] == "increase":
         st.success(message)
     elif cue["status"] == "caution":
@@ -54,8 +81,9 @@ def _complete_set(
 
 
 def _initialize_set_state(set_row: dict) -> None:
+    _sync_display_weight(_set_key(set_row["id"], "weight_kg"), float(set_row["weight_kg"]))
     defaults = {
-        "reps": set_row["reps"], "weight_kg": set_row["weight_kg"],
+        "reps": set_row["reps"],
         "rpe": 7.0 if set_row["rpe"] is None else set_row["rpe"],
         "pain": bool(set_row["pain"]),
         "technique": bool(set_row["technique_concern"]), "notes": set_row["notes"] or "",
@@ -69,7 +97,7 @@ def _initialize_set_state(set_row: dict) -> None:
 def _autosave_set(workout_id: int, set_id: int) -> None:
     live_workout_service.update_set(workout_id, set_id, LiveSetInput(
         reps=st.session_state[_set_key(set_id, "reps")],
-        weight_kg=st.session_state[_set_key(set_id, "weight_kg")],
+        weight_kg=_stored_weight(st.session_state[_set_key(set_id, "weight_kg")]),
         rpe=st.session_state[_set_key(set_id, "rpe")],
         pain=st.session_state[_set_key(set_id, "pain")],
         technique_concern=st.session_state[_set_key(set_id, "technique")],
@@ -463,7 +491,7 @@ elif active is not None:
                     st.markdown(f"**Set {set_index + 1} · Up next**")
                 columns = st.columns([1, 1.2, 0.9, 0.75, 1, 1.4])
                 columns[0].number_input("Reps", 1, 100, key=_set_key(set_id, "reps"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
-                columns[1].number_input("Weight (kg)", 0.0, 1000.0, step=2.5, key=_set_key(set_id, "weight_kg"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
+                columns[1].number_input(f"Weight ({unit})", 0.0, 1000.0, step=2.5, key=_set_key(set_id, "weight_kg"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
                 columns[2].number_input("RPE", 1.0, 10.0, step=0.5, key=_set_key(set_id, "rpe"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
                 columns[3].checkbox("Pain", key=_set_key(set_id, "pain"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
                 columns[4].checkbox("Technique", key=_set_key(set_id, "technique"), disabled=bool(set_row["is_completed"]), on_change=_autosave_set, args=(workout_id, set_id))
@@ -509,13 +537,14 @@ elif active is not None:
         target_min = add_cols[0].number_input("Target reps, min", 1, 100, 8, key="live_add_min")
         target_max = add_cols[1].number_input("Target reps, max", 1, 100, 12, key="live_add_max")
         set_count = add_cols[2].number_input("Sets", 1, 30, 3, key="live_add_sets")
-        weight = add_cols[3].number_input("Starting weight (kg)", 0.0, 1000.0, 20.0, key="live_add_weight")
+        _sync_display_weight("live_add_weight", 20.0)
+        weight = add_cols[3].number_input(f"Starting weight ({unit})", 0.0, 1000.0, step=2.5, key="live_add_weight")
         if st.button("Add to workout", key="live_add_commit"):
             try:
                 exercise = LiveExerciseInput(
                     exercise_name=exercise_name.strip(), target_reps_min=target_min,
                     target_reps_max=target_max, rest_seconds=active["default_rest_seconds"],
-                    sets=[LiveSetInput(weight_kg=weight) for _ in range(int(set_count))],
+                    sets=[LiveSetInput(weight_kg=_stored_weight(weight)) for _ in range(int(set_count))],
                 )
                 live_workout_service.add_exercise(workout_id, exercise, active["default_rest_seconds"])
                 st.rerun()

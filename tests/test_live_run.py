@@ -209,7 +209,7 @@ def test_version_four_database_gains_active_runs(tmp_path) -> None:
     database.init_database(db_path)
     with database.get_connection(db_path) as connection:
         connection.execute("SELECT id FROM active_runs")
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def _completed(run_type: str, distance_km: float, duration_minutes: float, workout_date: date):
