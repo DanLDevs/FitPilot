@@ -27,6 +27,16 @@ def _exercise_open_key(exercise_key: str) -> str:
     return f"live_ex_open_{exercise_key}"
 
 
+def _show_session_cue(cue: dict) -> None:
+    message = progression_service.format_session_cue(cue, "kg")
+    if cue["status"] == "increase":
+        st.success(message)
+    elif cue["status"] == "caution":
+        st.warning(message)
+    else:
+        st.info(message)
+
+
 def _complete_set(
     workout_id: int,
     set_id: int,
@@ -238,15 +248,15 @@ else:
                 "Target max", 1, 100, key=maximum_key,
                 on_change=_save_exercise_details, args=(workout_id, exercise_key),
             )
-            cue = progression_service.recommend_progression(historical_sets, exercise["exercise_name"])
-            if cue["status"] == "increase":
-                st.success(f"Consider increase · {cue['explanation']}")
-            elif cue["status"] == "caution":
-                st.warning(f"Caution · {cue['explanation']}")
-            elif cue["status"] == "insufficient":
-                st.info(f"Not enough history · {cue['explanation']}")
-            else:
-                st.info(f"Maintain · {cue['explanation']}")
+            first_weight = exercise["sets"][0]["weight_kg"] if exercise["sets"] else None
+            cue = progression_service.session_cue(
+                historical_sets,
+                exercise["exercise_name"],
+                exercise["target_reps_min"],
+                exercise["target_reps_max"],
+                starting_weight_kg=first_weight or None,
+            )
+            _show_session_cue(cue)
             rest_key = f"live_rest_{exercise_key}"
             if rest_key not in st.session_state:
                 st.session_state[rest_key] = exercise["rest_seconds"]
