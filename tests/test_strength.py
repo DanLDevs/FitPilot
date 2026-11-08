@@ -87,7 +87,7 @@ def test_active_workout_migration_preserves_legacy_completed_data(tmp_path) -> N
 
     assert workout == ("completed", 90)
     assert set_row == (1, "legacy:Bench Press", 0)
-    assert version == 5
+    assert version == 6
     assert routine_tables == 2
 
 
@@ -129,7 +129,7 @@ def test_partial_schema_version_still_receives_live_workout_columns(tmp_path) ->
 
     assert status == "completed"
     assert completed == 1
-    assert version == 5
+    assert version == 6
 
 
 def test_existing_routines_gain_rest_columns_without_losing_rows(tmp_path) -> None:
@@ -181,8 +181,45 @@ def test_existing_routines_gain_rest_columns_without_losing_rows(tmp_path) -> No
     assert routines[0]["exercises"][0]["exercise_name"] == "Bench Press"
     assert routines[0]["exercises"][0]["rest_seconds"] is None
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
         assert connection.execute("SELECT plan_id FROM workout_routines WHERE id = 4").fetchone()[0] is None
+
+
+def test_profile_weight_unit_defaults_to_kilograms(tmp_path) -> None:
+    db_path = tmp_path / "units.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                name TEXT NOT NULL,
+                primary_goal TEXT NOT NULL,
+                experience_level TEXT NOT NULL,
+                training_days INTEGER NOT NULL,
+                strength_days INTEGER NOT NULL,
+                running_days INTEGER NOT NULL,
+                session_minutes INTEGER NOT NULL,
+                equipment TEXT NOT NULL DEFAULT '',
+                fitness_goals TEXT NOT NULL DEFAULT '',
+                existing_schedule TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            PRAGMA user_version = 5;
+            """
+        )
+    database.init_database(db_path)
+    profile = {
+        "name": "Test", "primary_goal": "Hybrid Fitness", "experience_level": "Beginner",
+        "training_days": 3, "strength_days": 2, "running_days": 1,
+        "session_minutes": 45, "equipment": "", "fitness_goals": "",
+        "existing_schedule": "",
+    }
+    database.save_profile(profile, db_path)
+    assert database.get_profile(db_path)["weight_unit"] == "kg"
+    database.save_profile(profile | {"weight_unit": "lb"}, db_path)
+    assert database.get_profile(db_path)["weight_unit"] == "lb"
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_invalid_strength_input_is_rejected() -> None:

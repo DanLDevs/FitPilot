@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
 
-from typing import Self
+from typing import Literal, Self
 
 class ProfileInput(BaseModel):
     name: str = Field(min_length=1, max_length=80)
@@ -16,6 +16,7 @@ class ProfileInput(BaseModel):
     equipment: str = ""
     fitness_goals: str = ""
     existing_schedule: str = ""
+    weight_unit: Literal["kg", "lb"] = "kg"
 
 
 class StrengthSetInput(BaseModel):

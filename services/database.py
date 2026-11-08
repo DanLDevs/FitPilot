@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_DB_PATH = Path(os.getenv("FITPILOT_DB_PATH", "fitpilot.db"))
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -213,6 +213,10 @@ def _migrate_database(connection: sqlite3.Connection) -> None:
             );
             """
         )
+    if version < 6:
+        _add_columns(connection, "users", {
+            "weight_unit": "TEXT NOT NULL DEFAULT 'kg' CHECK (weight_unit IN ('kg', 'lb'))",
+        })
     if version < CURRENT_SCHEMA_VERSION:
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
@@ -231,11 +235,15 @@ def get_profile(db_path: str | Path | None = None) -> dict | None:
 
 
 def save_profile(profile: dict, db_path: str | Path | None = None) -> None:
+    weight_unit = profile.get("weight_unit") or "kg"
+    if weight_unit not in ("kg", "lb"):
+        weight_unit = "kg"
     fields = (
         "name", "primary_goal", "experience_level", "training_days", "strength_days",
         "running_days", "session_minutes", "equipment", "fitness_goals", "existing_schedule",
+        "weight_unit",
     )
-    values = [profile[field] for field in fields]
+    values = [profile[field] for field in fields[:-1]] + [weight_unit]
     assignments = ", ".join(f"{field} = excluded.{field}" for field in fields)
     with get_connection(db_path) as connection:
         connection.execute(
