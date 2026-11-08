@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_DB_PATH = Path(os.getenv("FITPILOT_DB_PATH", "fitpilot.db"))
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -190,6 +190,29 @@ def _migrate_database(connection: sqlite3.Connection) -> None:
         _add_columns(connection, "workout_routines", {
             "plan_id": "INTEGER REFERENCES training_plans(id)",
         })
+    if version < 5:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS active_runs (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,
+                workout_date TEXT NOT NULL,
+                title TEXT NOT NULL,
+                run_type TEXT NOT NULL,
+                target_distance_km REAL NOT NULL CHECK (target_distance_km > 0),
+                target_duration_minutes REAL NOT NULL CHECK (target_duration_minutes > 0),
+                distance_km REAL CHECK (distance_km IS NULL OR distance_km > 0),
+                duration_minutes REAL CHECK (duration_minutes IS NULL OR duration_minutes > 0),
+                distance_unit TEXT NOT NULL DEFAULT 'km' CHECK (distance_unit IN ('km', 'mi')),
+                timer_ends_at TEXT,
+                timer_paused_remaining_seconds INTEGER,
+                rpe INTEGER CHECK (rpe IS NULL OR (rpe >= 1 AND rpe <= 10)),
+                notes TEXT NOT NULL DEFAULT '',
+                pain INTEGER NOT NULL DEFAULT 0 CHECK (pain IN (0, 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
     if version < CURRENT_SCHEMA_VERSION:
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 

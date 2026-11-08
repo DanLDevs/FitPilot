@@ -2,7 +2,15 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from models.schemas import LiveExerciseInput, LiveSetInput, LiveWorkoutInput, RoutineExerciseInput, WorkoutRoutineInput
+from models.schemas import (
+    LiveExerciseInput,
+    LiveSetInput,
+    LiveWorkoutInput,
+    RoutineExerciseInput,
+    StrengthSetInput,
+    StrengthWorkoutInput,
+    WorkoutRoutineInput,
+)
 from services import analytics_service, database, live_workout_service, routine_service, strength_service
 from services.timer_service import remaining_seconds
 
@@ -138,9 +146,46 @@ def test_routine_crud_and_prefill_active_workout(tmp_path) -> None:
     assert workout["default_rest_seconds"] == 120
     assert len(workout["exercises"][0]["sets"]) == 3
     assert workout["exercises"][0]["sets"][0]["rest_seconds"] == 150
+    assert [row["weight_kg"] for row in workout["exercises"][0]["sets"]] == [45.0, 45.0, 45.0]
+    assert [row["reps"] for row in workout["exercises"][0]["sets"]] == [8, 8, 8]
 
     routine_service.delete_routine(routine_id, db_path)
     assert routine_service.get_routine(routine_id, db_path) is None
+
+
+def test_routine_start_prefills_last_session_without_rewriting_active_sets(tmp_path) -> None:
+    db_path = tmp_path / "routine-cue.db"
+    database.init_database(db_path)
+    database.save_profile(_profile(), db_path)
+    strength_service.add_workout(StrengthWorkoutInput(
+        workout_date=date(2026, 11, 1),
+        session_name="Push Day",
+        exercises=[StrengthSetInput(
+            exercise_name="Bench Press", sets=3, reps=12, weight_kg=50, rpe=7,
+            target_reps_min=8, target_reps_max=12,
+        )],
+    ), db_path)
+    routine_id = routine_service.save_routine(WorkoutRoutineInput(
+        name="Push Day",
+        exercises=[RoutineExerciseInput(
+            exercise_name="Bench Press", sets=3, target_reps_min=8,
+            target_reps_max=12, starting_weight_kg=45,
+        )],
+    ), db_path=db_path)
+    workout_id = live_workout_service.start_from_routine(routine_id, date(2026, 11, 7), db_path)
+    workout = live_workout_service.get_active_workout(db_path)
+    assert [row["weight_kg"] for row in workout["exercises"][0]["sets"]] == [52.5, 52.5, 52.5]
+    assert [row["reps"] for row in workout["exercises"][0]["sets"]] == [8, 8, 8]
+
+    set_id = workout["exercises"][0]["sets"][0]["id"]
+    live_workout_service.update_set(workout_id, set_id, LiveSetInput(reps=8, weight_kg=60), db_path)
+    reloaded = live_workout_service.get_active_workout(db_path)
+    assert reloaded["exercises"][0]["sets"][0]["weight_kg"] == 60
+    assert [row["reps"] for row in reloaded["exercises"][0]["sets"]] == [8, 8, 8]
+
+    with pytest.raises(ValueError):
+        live_workout_service.start_from_routine(routine_id, date(2026, 11, 8), db_path)
+    assert live_workout_service.get_active_workout(db_path)["exercises"][0]["sets"][0]["weight_kg"] == 60
 
 
 def test_completed_set_starts_rest_and_notification_is_one_shot(tmp_path) -> None:

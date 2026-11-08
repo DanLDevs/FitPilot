@@ -103,3 +103,4 @@ def rest_timer_html(
 
 def _js_string(value: str) -> str:
     return json.dumps(value)
+

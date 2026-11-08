@@ -3,7 +3,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from models.schemas import LiveExerciseInput, LiveSetInput, LiveWorkoutInput
+from services import strength_service
 from services.database import get_connection
+from services.progression_service import session_cue
 from services.timer_service import (
     adjust_deadline,
     make_deadline,
@@ -52,6 +54,9 @@ def start_workout(workout: LiveWorkoutInput, db_path: str | Path | None = None) 
         ).fetchone()
         if existing:
             raise ValueError("An active workout already exists. Resume or discard it first.")
+        active_run = connection.execute("SELECT id FROM active_runs LIMIT 1").fetchone()
+        if active_run:
+            raise ValueError("An active workout already exists. Resume or discard it first.")
         cursor = connection.execute(
             """INSERT INTO strength_workouts
             (workout_date, session_name, notes, status, default_rest_seconds, auto_start_rest)
@@ -70,6 +75,7 @@ def start_from_routine(
     workout_date: date | None = None,
     db_path: str | Path | None = None,
 ) -> int:
+    history = strength_service.list_sets(db_path)
     with get_connection(db_path) as connection:
         routine = connection.execute(
             "SELECT * FROM workout_routines WHERE id = ?", (routine_id,)
@@ -80,17 +86,26 @@ def start_from_routine(
             """SELECT * FROM routine_exercises WHERE routine_id = ? ORDER BY position""",
             (routine_id,),
         ).fetchall()
-        exercises = [LiveExerciseInput(
-            exercise_name=row["exercise_name"],
-            target_reps_min=row["target_reps_min"],
-            target_reps_max=row["target_reps_max"],
-            rest_seconds=row["rest_seconds"],
-            notes=row["notes"],
-            sets=[LiveSetInput(
-                reps=row["target_reps_min"],
-                weight_kg=row["starting_weight_kg"] or 0,
-            ) for _ in range(row["sets"])],
-        ) for row in rows]
+        exercises = []
+        for row in rows:
+            cue = session_cue(
+                history,
+                row["exercise_name"],
+                row["target_reps_min"],
+                row["target_reps_max"],
+                starting_weight_kg=row["starting_weight_kg"],
+            )
+            exercises.append(LiveExerciseInput(
+                exercise_name=row["exercise_name"],
+                target_reps_min=row["target_reps_min"],
+                target_reps_max=row["target_reps_max"],
+                rest_seconds=row["rest_seconds"],
+                notes=row["notes"],
+                sets=[LiveSetInput(
+                    reps=row["target_reps_min"],
+                    weight_kg=cue["suggested_weight_kg"],
+                ) for _ in range(row["sets"])],
+            ))
         active = LiveWorkoutInput(
             workout_date=workout_date or date.today(),
             session_name=routine["name"],

@@ -25,6 +25,38 @@ def _seed(key: str, value) -> None:
         st.session_state[key] = value
 
 
+def _display_weight(weight_kg: float, unit: str) -> float:
+    if unit == "lb":
+        return round(kg_to_pounds(weight_kg), 1)
+    return float(weight_kg)
+
+
+def _seed_logged_weight(weight_key: str, suggested_kg: float, unit: str) -> None:
+    suggested = min(1000.0, max(0.0, _display_weight(suggested_kg, unit)))
+    unit_key = f"{weight_key}_unit"
+    if weight_key not in st.session_state:
+        st.session_state[weight_key] = suggested
+        st.session_state[unit_key] = unit
+        return
+    previous_unit = st.session_state.get(unit_key)
+    if previous_unit == unit:
+        return
+    previous_suggested = min(1000.0, max(0.0, _display_weight(suggested_kg, previous_unit or "kg")))
+    if abs(float(st.session_state[weight_key]) - previous_suggested) < 0.05:
+        st.session_state[weight_key] = suggested
+    st.session_state[unit_key] = unit
+
+
+def _show_session_cue(cue: dict, unit: str) -> None:
+    message = progression_service.format_session_cue(cue, unit)
+    if cue["status"] == "increase":
+        st.success(message)
+    elif cue["status"] == "caution":
+        st.warning(message)
+    else:
+        st.info(message)
+
+
 def _save_strength_session(workout_date, session_name, workout_notes, unit, exercises) -> None:
     try:
         validated = StrengthWorkoutInput(
@@ -89,24 +121,33 @@ with tab_log:
     else:
         defaults = strength_log_defaults(selected_routine)
         routine_id = selected_routine["id"]
+        historical_sets = strength_service.list_sets()
+        unit_key = f"log_strength_unit_{routine_id}"
+        _seed(unit_key, "kg")
+        unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True, key=unit_key)
+        st.caption("Weights are stored in kilograms; pounds are converted on save.")
         with st.form(f"strength_log_{routine_id}"):
-            top1, top2, top3 = st.columns(3)
+            top1, top2 = st.columns(2)
             with top1:
                 workout_date = st.date_input("Workout date", value=date.today(), key=f"log_strength_date_{routine_id}")
                 _seed(f"log_strength_session_{routine_id}", defaults["session_name"])
                 session_name = st.text_input("Session name", key=f"log_strength_session_{routine_id}")
             with top2:
-                _seed(f"log_strength_unit_{routine_id}", "kg")
-                unit = st.radio("Weight unit", ["kg", "lb"], horizontal=True, key=f"log_strength_unit_{routine_id}")
-            with top3:
                 _seed(f"log_strength_notes_{routine_id}", defaults["notes"])
                 workout_notes = st.text_input("Session notes", key=f"log_strength_notes_{routine_id}")
-                st.caption("Weights are stored in kilograms; pounds are converted on save.")
 
             exercises = []
             for index, exercise in enumerate(defaults["exercises"]):
-                st.markdown(f"**{exercise['exercise_name']}**")
-                st.caption(f"Planned {exercise['target_reps_min']}–{exercise['target_reps_max']} reps")
+                routine_exercise = selected_routine["exercises"][index]
+                cue = progression_service.session_cue(
+                    historical_sets,
+                    routine_exercise["exercise_name"],
+                    routine_exercise["target_reps_min"],
+                    routine_exercise["target_reps_max"],
+                    starting_weight_kg=routine_exercise.get("starting_weight_kg"),
+                )
+                st.markdown(f"**{routine_exercise['exercise_name']}**")
+                _show_session_cue(cue, unit)
                 columns = st.columns([2, 1, 1, 1, 1, 1])
                 name_key = f"log_strength_name_{routine_id}_{index}"
                 sets_key = f"log_strength_sets_{routine_id}_{index}"
@@ -118,7 +159,7 @@ with tab_log:
                 _seed(name_key, exercise["exercise_name"])
                 _seed(sets_key, min(20, max(1, exercise["sets"])))
                 _seed(reps_key, min(100, max(1, exercise["reps"])))
-                _seed(weight_key, min(1000.0, max(0.0, exercise["weight_kg"])))
+                _seed_logged_weight(weight_key, cue["suggested_weight_kg"], unit)
                 _seed(rpe_key, 7.0)
                 _seed(pain_key, False)
                 _seed(note_key, exercise["notes"])
