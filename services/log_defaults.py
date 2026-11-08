@@ -19,9 +19,11 @@ def strength_log_defaults(routine: dict) -> dict:
 
 
 def running_log_defaults(day: dict) -> dict:
+    distance = day.get("distance_km")
+    duration = day.get("duration_minutes")
     return {
-        "run_type": day["run_type"],
-        "distance_km": float(day["distance_km"]),
-        "duration_minutes": float(day["duration_minutes"]),
+        "run_type": day.get("run_type"),
+        "distance_km": 0.0 if distance is None else float(distance),
+        "duration_minutes": 0.0 if duration is None else float(duration),
         "notes": day.get("notes") or "",
     }
